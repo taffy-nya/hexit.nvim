@@ -3,6 +3,9 @@ local modules = {
   'tests.cases.doc',
   'tests.cases.io',
   'tests.cases.entry',
+  'tests.cases.layout',
+  'tests.cases.motion',
+  'tests.cases.navigation',
 }
 local failed, total = 0, 0
 

@@ -13,7 +13,7 @@ return {
       H.eq(vim.bo[buf].buftype, 'acwrite')
       H.eq(vim.bo[buf].modifiable, false)
       H.eq(vim.bo[buf].modified, false)
-      H.eq(#vim.api.nvim_buf_get_lines(buf, 0, -1, false), 1)
+      H.eq(#vim.api.nvim_buf_get_lines(buf, 0, -1, false), session.height + 1)
       vim.cmd('Hex ' .. vim.fn.fnameescape(path))
       H.eq(vim.api.nvim_get_current_buf(), buf)
       vim.api.nvim_buf_delete(buf, { force = true })

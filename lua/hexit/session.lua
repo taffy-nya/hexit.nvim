@@ -1,4 +1,7 @@
 local io = require('hexit.io')
+local view = require('hexit.view')
+local input = require('hexit.input')
+local motion = require('hexit.motion')
 
 local M = {}
 local by_buffer = {}
@@ -26,27 +29,6 @@ local function name_taken(path)
   return false
 end
 
-local function summary(session)
-  if session.phase == 'closed' or not vim.api.nvim_buf_is_valid(session.bufnr) then
-    return
-  end
-  local label
-  if session.phase == 'ready' then
-    label = ('Hexit [ready] %d bytes: %s'):format(session.root.size, session.path)
-  elseif session.phase == 'error' then
-    label = ('Hexit [error] %s'):format(session.error)
-  elseif session.total_bytes then
-    label = ('Hexit [loading] %d/%d bytes: %s'):format(session.loaded_bytes, session.total_bytes, session.path)
-  else
-    label = ('Hexit [loading] %s'):format(session.path)
-  end
-  local buf = session.bufnr
-  vim.bo[buf].modifiable = true
-  local ok, err = pcall(vim.api.nvim_buf_set_lines, buf, 0, -1, false, { label })
-  vim.bo[buf].modifiable = false
-  vim.bo[buf].modified = false
-  if not ok then error(err) end
-end
 
 function M.get(bufnr)
   return by_buffer[bufnr]
@@ -58,6 +40,8 @@ end
 
 function M.close(session)
   if session.phase == 'closed' then return end
+  view.detach(session)
+  motion.cancel(session)
   session.phase = 'closed'
   session.generation = session.generation + 1
   session.token.cancelled = true
@@ -101,7 +85,7 @@ function M.create(path, options, on_change)
     generation = 0, pending = nil, eof_after_replace = false,
     token = { cancelled = false }, options = options,
     loaded_bytes = 0, total_bytes = nil,
-    on_change = on_change or summary,
+    on_change = on_change or view.render,
   }
   by_buffer[buf] = session
   by_path[path_key(path)] = session
@@ -110,8 +94,9 @@ function M.create(path, options, on_change)
     group = session.augroup, buffer = buf,
     callback = function() M.close(session) end,
   })
+  view.attach(session)
+  input.attach(session)
   vim.api.nvim_set_current_buf(buf)
-  summary(session)
   session.token.on_progress = function(read, total)
     if session.phase ~= 'loading' then return end
     session.loaded_bytes, session.total_bytes = read, total
