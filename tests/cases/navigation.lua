@@ -36,6 +36,55 @@ return {
     end,
   },
   {
+    name = 'NAV overflow rejects entire counted motion and resets on Esc',
+    run = function()
+      local session = open('ABCD')
+      local function keys(input)
+        vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(input, true, false, true), 'xt', false)
+      end
+      keys('2147483648l')
+      H.eq(session.cursor, { offset = 0, nibble = 0, area = 'hex' })
+      press('l', function() return session.cursor.nibble == 1 end)
+      keys('214748364899l')
+      H.eq(session.cursor, { offset = 0, nibble = 1, area = 'hex' })
+      keys('2147483648<Esc>')
+      press('l', function() return session.cursor.offset == 1 end)
+      keys('2147483648gg')
+      H.eq(session.cursor.offset, 1)
+      H.eq(session.input.prefix, nil)
+    end,
+  },
+  {
+    name = 'VIEW native Ctrl-e and Ctrl-y cannot scroll away the title',
+    run = function()
+      local session = open(string.rep('A', 2048))
+      local cursor = vim.deepcopy(session.cursor)
+      for _, key in ipairs({ '<C-e>', '<C-y>' }) do
+        vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(key, true, false, true), 'xt', false)
+        H.eq(vim.fn.winsaveview().topline, 1)
+        H.eq(session.top_row, 0)
+        H.eq(session.cursor, cursor)
+      end
+    end,
+  },
+  {
+    name = 'NAV command-line entry discards pending g count and overflow',
+    run = function()
+      local session = open(string.rep('A', 64))
+      local function keys(input)
+        vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(input, true, false, true), 'xt', false)
+      end
+      keys('g:HexGoto 16<CR>l')
+      H.eq(session.cursor, { offset = 16, nibble = 1, area = 'hex' })
+      keys('24:HexGoto 0<CR>l')
+      H.eq(session.cursor, { offset = 0, nibble = 1, area = 'hex' })
+      keys('2147483648:HexGoto 16<CR>l')
+      H.eq(session.cursor, { offset = 16, nibble = 1, area = 'hex' })
+      keys('g:<Esc>l')
+      H.eq(session.cursor, { offset = 17, nibble = 0, area = 'hex' })
+    end,
+  },
+  {
     name = 'NAV commands preserve offset and reject bad locations',
     run = function()
       local session = open(string.rep('A', 34))
@@ -99,6 +148,49 @@ return {
     end,
   },
   {
+    name = 'VIEW short owner keeps EOF and page motions visible across tall split',
+    run = function()
+      local session = open(string.rep('AB', 1024))
+      vim.cmd('split')
+      vim.cmd('resize 5')
+      local short = vim.api.nvim_get_current_win()
+      local scrolloff = vim.api.nvim_get_option_value('scrolloff', { win = short })
+      vim.api.nvim_set_option_value('scrolloff', 3, { win = short })
+      local tall
+      for _, win in ipairs(vim.api.nvim_list_wins()) do
+        if win ~= short then tall = win end
+      end
+      assert(tall)
+      vim.api.nvim_set_current_win(tall)
+      vim.cmd('HexGoto 2047')
+      H.eq(session.height, 15)
+      H.eq(session.owner_height, 15)
+      H.eq(session.top_row, 113)
+      vim.api.nvim_set_current_win(short)
+      H.eq(session.active_win, short)
+      H.eq(session.owner_height, 4)
+      H.eq(session.top_row, 124)
+      H.eq(session.cursor.offset, 2047)
+      H.eq(vim.api.nvim_win_get_cursor(short)[1], 5)
+      H.eq(vim.fn.winsaveview().topline, 1)
+      H.eq(#vim.api.nvim_buf_get_lines(session.bufnr, 0, -1, false), 16)
+      H.eq(vim.api.nvim_buf_get_lines(session.bufnr, 5, 6, false)[1], '')
+      press('<C-u>', function() return session.cursor.offset == 2015 end)
+      H.eq(session.top_row, 122)
+      H.eq(vim.api.nvim_win_get_cursor(short)[1], 5)
+      press('<C-d>', function() return session.cursor.offset == 2047 end)
+      H.eq(session.top_row, 124)
+      H.eq(vim.fn.winsaveview().topline, 1)
+      vim.api.nvim_set_current_win(tall)
+      H.eq(session.owner_height, 15)
+      H.eq(session.top_row, 113)
+      H.eq(vim.api.nvim_win_get_cursor(tall)[1], 16)
+      H.eq(vim.fn.winsaveview().topline, 1)
+      vim.api.nvim_set_option_value('scrolloff', scrolloff, { win = short })
+      vim.cmd('close')
+    end,
+  },
+  {
     name = 'NAV custom Plug key works without default input capture',
     run = function()
       require('hexit').setup({ mappings = false })
@@ -131,12 +223,13 @@ return {
   {
     name = 'VIEW hit testing and window option restoration',
     run = function()
-      local wrap, number = vim.wo.wrap, vim.wo.number
-      vim.wo.wrap, vim.wo.number = true, true
+      local wrap, number, scrolloff = vim.wo.wrap, vim.wo.number, vim.wo.scrolloff
+      vim.wo.wrap, vim.wo.number, vim.wo.scrolloff = true, true, 3
       local session = open(H.bytes(0, 65, 255))
       local lay = session.layout
       H.eq(vim.wo.wrap, false)
       H.eq(vim.wo.number, false)
+      H.eq(vim.wo.scrolloff, 0)
       vim.api.nvim_win_set_cursor(0, { 2, layout.cell(lay, 1, 1, 'hex') })
       vim.api.nvim_exec_autocmds('CursorMoved', { buffer = session.bufnr })
       H.eq(session.cursor, { offset = 1, nibble = 1, area = 'hex' })
@@ -144,9 +237,36 @@ return {
       vim.api.nvim_exec_autocmds('CursorMoved', { buffer = session.bufnr })
       H.eq(session.cursor.offset, 1)
       vim.cmd('enew')
-      H.eq(vim.wo.wrap, true)
-      H.eq(vim.wo.number, true)
-      vim.wo.wrap, vim.wo.number = wrap, number
+      assert(vim.wait(1000, function()
+        return vim.wo.wrap and vim.wo.number and vim.wo.scrolloff == 3
+      end, 10), 'Hex window options were not restored after leaving')
+      vim.wo.wrap, vim.wo.number, vim.wo.scrolloff = false, false, 5
+      vim.cmd('buffer ' .. session.bufnr)
+      H.eq(vim.wo.scrolloff, 0)
+      vim.cmd('enew')
+      assert(vim.wait(1000, function()
+        return not vim.wo.wrap and not vim.wo.number and vim.wo.scrolloff == 5
+      end, 10), 're-entering Hex lost the latest window options')
+      vim.wo.wrap, vim.wo.number, vim.wo.scrolloff = wrap, number, scrolloff
+    end,
+  },
+  {
+    name = 'VIEW leaving Hex preserves global scrolloff inheritance',
+    run = function()
+      local global = vim.api.nvim_get_option_value('scrolloff', { scope = 'global' })
+      local local_value = vim.api.nvim_get_option_value('scrolloff', { scope = 'local', win = 0 })
+      vim.api.nvim_set_option_value('scrolloff', 3, { scope = 'global' })
+      vim.api.nvim_set_option_value('scrolloff', -1, { scope = 'local', win = 0 })
+      open('AB')
+      H.eq(vim.wo.scrolloff, 0)
+      vim.cmd('enew')
+      assert(vim.wait(1000, function()
+        return vim.api.nvim_get_option_value('scrolloff', { scope = 'local', win = 0 }) == -1
+      end, 10), 'leaving Hex converted inherited scrolloff to a local override')
+      vim.api.nvim_set_option_value('scrolloff', 6, { scope = 'global' })
+      H.eq(vim.wo.scrolloff, 6)
+      vim.api.nvim_set_option_value('scrolloff', global, { scope = 'global' })
+      vim.api.nvim_set_option_value('scrolloff', local_value, { scope = 'local', win = 0 })
     end,
   },
 }

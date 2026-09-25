@@ -11,6 +11,7 @@ local actions = {
 local specials = {
   ['<Left>'] = 'Left', ['<Right>'] = 'Right', ['<Up>'] = 'Up', ['<Down>'] = 'Down',
   ['<C-u>'] = 'HalfUp', ['<C-d>'] = 'HalfDown', ['<C-b>'] = 'PageUp', ['<C-f>'] = 'PageDown',
+  ['<C-e>'] = 'Unsupported', ['<C-y>'] = 'Unsupported',
   ['<Tab>'] = 'SwitchArea', ['<Esc>'] = 'Escape',
   ['<ScrollWheelUp>'] = 'WheelUp', ['<ScrollWheelDown>'] = 'WheelDown',
 }
@@ -19,12 +20,15 @@ local names = {
   WordPrev = true, WordEnd = true, First = true, Last = true,
   RowStart = true, RowEnd = true, HalfUp = true, HalfDown = true,
   PageUp = true, PageDown = true, SwitchArea = true, Escape = true,
-  GPrefix = true, WheelUp = true, WheelDown = true,
+  GPrefix = true, WheelUp = true, WheelDown = true, Unsupported = true,
 }
 for digit = 0, 9 do names['Digit' .. digit] = true end
 
 local function message(text)
   vim.notify('hexit: ' .. text, vim.log.levels.WARN)
+end
+local function clear_pending(state)
+  state.count, state.prefix, state.overflow = nil, nil, nil
 end
 
 local function dispatch(session, action, key)
@@ -34,7 +38,7 @@ local function dispatch(session, action, key)
   end
   local state = session.input
   if action == 'Escape' then
-    state.count, state.prefix = nil, nil
+    clear_pending(state)
     motion.cancel(session)
     return
   end
@@ -43,7 +47,7 @@ local function dispatch(session, action, key)
     if key == 'g' then
       action = 'First'
     else
-      state.count = nil
+      clear_pending(state)
       message('expected second g')
       return
     end
@@ -52,12 +56,14 @@ local function dispatch(session, action, key)
     return
   elseif action and action:match('^Digit%d$') then
     local digit = tonumber(action:sub(-1))
+    if state.overflow then return end
     if digit == 0 and state.count == nil then
       action = 'RowStart'
     else
       local current = state.count or 0
       if current > math.floor((2147483647 - digit) / 10) then
         state.count = nil
+        state.overflow = true
         message('count exceeds 2147483647')
         return
       end
@@ -65,9 +71,13 @@ local function dispatch(session, action, key)
       return
     end
   end
+  if state.overflow then
+    state.count, state.overflow = nil, nil
+    return
+  end
   local count, has_count = state.count or 1, state.count ~= nil
   state.count = nil
-  if not action or action:match('^Char%x%x$') then
+  if not action or action == 'Unsupported' or action:match('^Char%x%x$') then
     message('operation not supported in the first stage')
     return
   end
@@ -85,7 +95,7 @@ local function dispatch(session, action, key)
     view.scroll(session, action == 'WheelUp' and -3 or 3)
   else
     motion.cancel(session)
-    motion.move(session, action, count, has_count, session.height, function()
+    motion.move(session, action, count, has_count, session.owner_height, function()
       if session.phase == 'ready' then view.render(session) end
     end)
   end
@@ -93,7 +103,7 @@ end
 
 function M.attach(session)
   local buf = session.bufnr
-  session.input = { count = nil, prefix = nil }
+  session.input = { count = nil, prefix = nil, overflow = nil }
   local function plug(action, key)
     local name = '<Plug>(Hexit-' .. action .. ')'
     vim.keymap.set('n', name, function() dispatch(session, action, key) end,
@@ -129,9 +139,21 @@ function M.attach(session)
         { buffer = buf, silent = true, nowait = true, remap = true })
     end
   end
+  vim.api.nvim_create_autocmd('CmdlineEnter', {
+    group = session.augroup, pattern = ':',
+    callback = function()
+      if vim.api.nvim_get_current_buf() == buf then
+        clear_pending(session.input)
+        motion.cancel(session)
+      end
+    end,
+  })
   vim.api.nvim_create_autocmd({ 'BufLeave', 'WinLeave' }, {
     group = session.augroup, buffer = buf,
-    callback = function() session.input.count, session.input.prefix = nil, nil; motion.cancel(session) end,
+    callback = function()
+      clear_pending(session.input)
+      motion.cancel(session)
+    end,
   })
 end
 

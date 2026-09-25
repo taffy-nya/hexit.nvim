@@ -4,9 +4,9 @@ local document = require('hexit.document')
 local M = {}
 local ns = vim.api.nvim_create_namespace('HexitView')
 M.namespace = ns
-local window_options = { 'wrap', 'number', 'relativenumber', 'foldcolumn', 'signcolumn', 'conceallevel' }
-local window_values = { wrap = false, number = false, relativenumber = false, foldcolumn = '0', signcolumn = 'no', conceallevel = 0 }
-local saved_windows = {}
+local window_options = { 'wrap', 'number', 'relativenumber', 'foldcolumn', 'signcolumn', 'conceallevel', 'scrolloff' }
+local window_values = { wrap = false, number = false, relativenumber = false, foldcolumn = '0', signcolumn = 'no', conceallevel = 0, scrolloff = 0 }
+local saved_windows, preceding_windows, tracked_buffers = {}, {}, {}
 local rendering = false
 
 local function windows(session)
@@ -19,13 +19,38 @@ local function windows(session)
   return result
 end
 
+local function snapshot_window(win)
+  local saved = {}
+  for _, option in ipairs(window_options) do
+    local opts = { win = win }
+    if option == 'scrolloff' then opts.scope = 'local' end
+    saved[option] = vim.api.nvim_get_option_value(option, opts)
+  end
+  return saved
+end
+
+local transitions = vim.api.nvim_create_augroup('HexitWindowTransitions', { clear = true })
+vim.api.nvim_create_autocmd('BufLeave', {
+  group = transitions,
+  callback = function(args)
+    if not next(tracked_buffers) or tracked_buffers[args.buf] then return end
+    local win = vim.api.nvim_get_current_win()
+    if not saved_windows[win] then preceding_windows[win] = snapshot_window(win) end
+  end,
+})
+
+vim.api.nvim_create_autocmd('WinClosed', {
+  group = vim.api.nvim_create_augroup('HexitWindowCleanup', { clear = true }),
+  callback = function(args)
+    local win = tonumber(args.match)
+    saved_windows[win], preceding_windows[win] = nil, nil
+  end,
+})
+
 local function set_window(win)
   if not saved_windows[win] then
-    local saved = {}
-    for _, option in ipairs(window_options) do
-      saved[option] = vim.api.nvim_get_option_value(option, { win = win })
-    end
-    saved_windows[win] = saved
+    saved_windows[win] = preceding_windows[win] or snapshot_window(win)
+    preceding_windows[win] = nil
   end
   for option, value in pairs(window_values) do
     vim.api.nvim_set_option_value(option, value, { win = win })
@@ -40,6 +65,26 @@ local function restore_window(win)
   for option, value in pairs(saved) do
     vim.api.nvim_set_option_value(option, value, { win = win })
   end
+end
+vim.api.nvim_create_autocmd('BufEnter', {
+  group = transitions,
+  callback = function(args)
+    if not tracked_buffers[args.buf] then restore_window(vim.api.nvim_get_current_win()) end
+  end,
+})
+
+local function restore_after_leave(win, buf)
+  vim.schedule(function()
+    if not vim.api.nvim_win_is_valid(win) then
+      saved_windows[win] = nil
+    elseif vim.api.nvim_win_get_buf(win) ~= buf and not tracked_buffers[vim.api.nvim_win_get_buf(win)] then
+      restore_window(win)
+    end
+  end)
+end
+
+local function keep_title_visible()
+  if vim.fn.line('w0') ~= 1 then vim.fn.winrestview({ topline = 1 }) end
 end
 
 local function heading(lay, session)
@@ -123,17 +168,24 @@ function M.render(session)
       height = math.max(height, vim.api.nvim_win_get_height(win) - 1)
     end
     if width == math.huge then width = vim.o.columns end
+    local owner = session.active_win
+    if not owner or not vim.api.nvim_win_is_valid(owner) or vim.api.nvim_win_get_buf(owner) ~= session.bufnr then
+      owner = visible[1]
+    end
+    session.active_win = owner
+    local owner_height = owner and math.max(1, vim.api.nvim_win_get_height(owner) - 1) or height
     local size = session.root and session.root.size or 0
     local lay = layout.compute(session.options, width, size)
     session.layout = lay
     session.bytes_per_row = lay.bpr
     session.height = height
+    session.owner_height = owner_height
     if session.phase == 'ready' and size > 0 then
       local rows = math.ceil(size / lay.bpr)
-      session.top_row = math.max(0, math.min(session.top_row, math.max(0, rows - height)))
+      session.top_row = math.max(0, math.min(session.top_row, math.max(0, rows - owner_height)))
       local row = math.floor(session.cursor.offset / lay.bpr)
       if row < session.top_row then session.top_row = row end
-      if row >= session.top_row + height then session.top_row = row - height + 1 end
+      if row >= session.top_row + owner_height then session.top_row = row - owner_height + 1 end
     else
       session.top_row = 0
     end
@@ -163,6 +215,7 @@ function M.render(session)
       for _, win in ipairs(visible) do
         if line <= vim.api.nvim_win_get_height(win) then
           vim.api.nvim_win_set_cursor(win, { line, screen })
+          vim.api.nvim_win_call(win, keep_title_visible)
         end
       end
     end
@@ -173,19 +226,20 @@ end
 
 function M.scroll(session, rows)
   if session.phase ~= 'ready' or session.root.size == 0 then return end
-  local max_row = math.max(0, math.ceil(session.root.size / session.bytes_per_row) - session.height)
+  local max_row = math.max(0, math.ceil(session.root.size / session.bytes_per_row) - session.owner_height)
   session.top_row = math.max(0, math.min(max_row, session.top_row + rows))
   local row = math.floor(session.cursor.offset / session.bytes_per_row)
   if row < session.top_row then
     session.cursor.offset = math.min(session.root.size - 1, session.top_row * session.bytes_per_row + session.cursor.offset % session.bytes_per_row)
-  elseif row >= session.top_row + session.height then
-    session.cursor.offset = math.min(session.root.size - 1, (session.top_row + session.height - 1) * session.bytes_per_row + session.cursor.offset % session.bytes_per_row)
+  elseif row >= session.top_row + session.owner_height then
+    session.cursor.offset = math.min(session.root.size - 1, (session.top_row + session.owner_height - 1) * session.bytes_per_row + session.cursor.offset % session.bytes_per_row)
   end
   M.render(session)
 end
 
 function M.attach(session)
   local buf = session.bufnr
+  tracked_buffers[buf] = true
   local function active()
     return session.phase ~= 'closed' and vim.api.nvim_get_current_buf() == buf
   end
@@ -202,7 +256,7 @@ function M.attach(session)
   })
   vim.api.nvim_create_autocmd('BufLeave', {
     group = session.augroup, buffer = buf,
-    callback = function() restore_window(vim.api.nvim_get_current_win()) end,
+    callback = function() restore_after_leave(vim.api.nvim_get_current_win(), buf) end,
   })
   vim.api.nvim_create_autocmd('CursorMoved', {
     group = session.augroup, buffer = buf,
@@ -223,7 +277,10 @@ function M.attach(session)
 end
 
 function M.detach(session)
-  for _, win in ipairs(windows(session)) do restore_window(win) end
+  tracked_buffers[session.bufnr] = nil
+  for _, win in ipairs(windows(session)) do
+    restore_after_leave(win, session.bufnr)
+  end
 end
 
 return M
