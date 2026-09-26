@@ -87,6 +87,9 @@ SELECT AND EDIT                                             *hexit-editing*
 v / V    Toggle Byte or entire-display-row Visual selection. Switching between
          v/V retains anchor. Motions and Tab extend the range; Esc exits.
          Selection length appears in the title. Empty files have no selection.
+         When the viewport is wide enough, mode and length stay at the left
+         edge of the title; long status can cover the first column-number
+         labels, not the data rows.
 r{digit}  Hex: replace current nibble, count repeats digit over consecutive
          nibble positions. ASCII: replace current Byte, count repeats one
          printable ASCII character. Beyond EOF rejects the entire operation.

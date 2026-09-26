@@ -119,6 +119,26 @@ return {
     end,
   },
   {
+    name = 'VIEW 80-column title keeps long Visual range and both Replace areas visible',
+    run = function()
+      local original = string.rep('A', 1024)
+      local s = open(original)
+      H.eq(vim.api.nvim_win_get_width(0), 80)
+      local function visible_title()
+        return vim.api.nvim_buf_get_lines(s.bufnr, 0, 1, false)[1]:sub(1, vim.api.nvim_win_get_width(0))
+      end
+      keys('VG')
+      H.eq({ require('hexit.actions').selection(s) }, { 0, 1024 })
+      assert(visible_title():find('VISUAL (1024 B)', 1, true) == 1, visible_title())
+      keys('<Esc>ggR')
+      assert(visible_title():find('REPLACE HEX', 1, true) == 1, visible_title())
+      keys('<Esc><Tab>R')
+      assert(visible_title():find('REPLACE ASCII', 1, true) == 1, visible_title())
+      keys('<Esc>')
+      H.eq(value(s), original)
+    end,
+  },
+  {
     name = 'EDIT binary yank and counted insertion are whole-byte and one transaction',
     run = function()
       local s = open(H.bytes(0, 255, 65))

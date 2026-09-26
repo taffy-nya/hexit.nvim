@@ -44,6 +44,7 @@ function M.close(session)
   motion.cancel(session)
   input.clear_temporary(session)
   session.transaction = nil
+  session.dirty_check = nil
   session.phase = 'closed'
   session.generation = session.generation + 1
   session.token.cancelled = true

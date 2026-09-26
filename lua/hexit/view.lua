@@ -87,7 +87,7 @@ local function keep_title_visible()
   if vim.fn.line('w0') ~= 1 then vim.fn.winrestview({ topline = 1 }) end
 end
 
-local function heading(lay, session)
+local function heading(lay, session, width)
   local chars = {}
   local selected = 0
   if session.anchor ~= nil and session.root then
@@ -99,7 +99,6 @@ local function heading(lay, session)
       and ('VISUAL (' .. selected .. ' B)') or 'NORMAL')
   local prefix = session.cursor.area == 'hex'
     and ('%s H%d'):format(mode, session.cursor.nibble) or (mode .. ' A')
-  for i = 1, math.min(#prefix, lay.hex_start) do chars[i] = prefix:sub(i, i) end
   for col = 0, lay.bpr - 1 do
     local byte = (lay.uppercase_hex and '%02X' or '%02x'):format(col)
     local screen = layout.cell(lay, col, 0, 'hex')
@@ -109,10 +108,10 @@ local function heading(lay, session)
         (lay.uppercase_hex and '%X' or '%x'):format(col % 16)
     end
   end
-  if not lay.show_offset then
-    for i = 1, #prefix do chars[i] = prefix:sub(i, i) end
-  end
-  local limit = lay.width
+  -- Status takes priority over the first column numbers in a narrow viewport;
+  -- it must not disappear past the right edge of the fixed-width data grid.
+  for i = 1, math.min(#prefix, width) do chars[i] = prefix:sub(i, i) end
+  local limit = math.max(lay.width, math.min(#prefix, width))
   for i = 1, limit do if chars[i] == nil then chars[i] = ' ' end end
   local area = session.cursor.area:upper()
   local nibble = session.cursor.area == 'hex' and (session.cursor.nibble == 0 and ' HI' or ' LO') or ''
@@ -212,7 +211,7 @@ function M.render(session)
     end
     local lines = {}
     if session.phase == 'ready' or session.phase == 'saving' then
-      lines[1] = heading(lay, session)
+      lines[1] = heading(lay, session, width)
       for i = 0, height - 1 do
         lines[#lines + 1] = layout.row(session.root, session.top_row + i, lay)
       end

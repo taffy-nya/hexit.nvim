@@ -15,25 +15,43 @@ local function changed(session)
 end
 
 function M.refresh_dirty(session)
-  local root, saved, revision = session.root, session.saved_root, session.revision
+  local root, saved = session.root, session.saved_root
   if not root or not saved or session.phase == 'closed' then return end
   local buf = session.bufnr
   if root == saved or root.size == 0 and saved.size == 0 then
+    session.dirty_check = nil
     vim.bo[buf].modified = false
     return
   end
   if root.size ~= saved.size then
+    session.dirty_check = nil
     vim.bo[buf].modified = true
     return
   end
   vim.bo[buf].modified = true
-  local at = 0
+  local check = session.dirty_check
+  if check then
+    check.root, check.saved, check.revision, check.at = root, saved, session.revision, 0
+    return
+  end
+  check = { root = root, saved = saved, revision = session.revision, at = 0 }
+  session.dirty_check = check
   local function step()
-    if session.phase == 'closed' or session.revision ~= revision or session.saved_root ~= saved then return end
-    local stop = math.min(root.size, at + 65536)
-    if document.read(root, at, stop - at) ~= document.read(saved, at, stop - at) then return end
-    at = stop
-    if at == root.size then
+    if session.phase == 'closed' or session.dirty_check ~= check then return end
+    local current, baseline, revision = check.root, check.saved, check.revision
+    if session.saved_root ~= baseline or session.revision ~= revision then
+      session.dirty_check = nil
+      return
+    end
+    local stop = math.min(current.size, check.at + 65536)
+    if document.read(current, check.at, stop - check.at)
+      ~= document.read(baseline, check.at, stop - check.at) then
+      session.dirty_check = nil
+      return
+    end
+    check.at = stop
+    if stop == current.size then
+      session.dirty_check = nil
       vim.bo[buf].modified = false
     else
       vim.schedule(step)
@@ -88,9 +106,10 @@ end
 local function apply_replace_mode(session, start, data)
   local transaction = assert(session.transaction, 'hexit: transaction required')
   local run = transaction.run
+  local same_byte = run and start == run.stop - 1
   if not run or (start ~= run.stop and start ~= run.stop - 1) then
     local range = { start = start, len = 1, insert = 1 }
-    run = { start = start, stop = start + 1, block_start = start, range = range }
+    run = { start = start, stop = start + 1, range = range, blocks = {} }
     transaction.run = run
     transaction.ranges[#transaction.ranges + 1] = range
   elseif start == run.stop then
@@ -98,18 +117,24 @@ local function apply_replace_mode(session, start, data)
     run.range.len, run.range.insert = run.stop - run.start, run.stop - run.start
   end
 
-  local block
-  if start == run.block_start + (run.block_data and #run.block_data or 0) - 1 then
-    -- Low nibble of the most recently replaced Byte.
-    block = run.block_data:sub(1, -2) .. data
-  elseif run.block_data and start == run.block_start + #run.block_data and #run.block_data < 65536 then
-    block = run.block_data .. data
+  local blocks = run.blocks
+  if same_byte then
+    -- The second nibble overwrites the last Byte; previous roots retain the
+    -- old immutable string. Dyadic merges amortize copied data over the run.
+    local last = blocks[#blocks]
+    blocks[#blocks] = { data = last.data:sub(1, -2) .. data, len = last.len }
   else
-    run.block_start = start
-    block = data
+    blocks[#blocks + 1] = { data = data, len = 1 }
+    while #blocks > 1 and blocks[#blocks].len == blocks[#blocks - 1].len do
+      local right = table.remove(blocks)
+      local left = table.remove(blocks)
+      blocks[#blocks + 1] = { data = left.data .. right.data, len = left.len + right.len }
+    end
   end
-  session.root = document.splice(session.root, run.block_start, #block, document.from_chunks({ block }))
-  run.block_data = block
+
+  local chunks = {}
+  for i, block in ipairs(blocks) do chunks[i] = block.data end
+  session.root = document.splice(session.root, run.start, run.stop - run.start, document.from_chunks(chunks))
 end
 
 
