@@ -1,0 +1,21 @@
+local H = require('tests.helpers')
+local io = require('hexit.io')
+H.begin_case()
+local original = string.char(0, 255, 65)
+local path = H.temp_file(original)
+vim.cmd('Hex ' .. vim.fn.fnameescape(path))
+local s = H.wait_ready(vim.api.nvim_get_current_buf())
+vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes('rF', true, false, true), 'xt', false)
+assert(#s.undo == 1)
+local fail = io.new({ fs_rename = function(_, _, callback) callback('EIO: forced rename failure') end })
+local old = io.save
+io.save = function(root, target, token, callback) return fail.save(root, target, token, callback) end
+local ok, err = pcall(vim.cmd, 'wq')
+io.save = old
+assert(not ok and tostring(err):find('fs_rename', 1, true), tostring(err))
+assert(vim.api.nvim_buf_is_valid(s.bufnr) and vim.api.nvim_get_current_buf() == s.bufnr)
+assert(s.phase == 'ready' and vim.bo[s.bufnr].modified and #s.undo == 1)
+assert(H.read_disk(path) == original)
+print('WRITE_FAILURE_CHILD', 'wq_error=fs_rename', 'buffer_kept=true', 'disk_unchanged=true')
+H.end_case()
+vim.cmd('qa!')

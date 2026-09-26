@@ -44,4 +44,12 @@ function M.bytes_per_row(text)
   view.render(session)
 end
 
+function M.copy_as(text)
+  local session = current()
+  local words = {}
+  for word in text:gmatch('%S+') do words[#words + 1] = word end
+  if #words > 2 then error('hexit: expected [format] [register]', 2) end
+  require('hexit.actions').copy_as(session, words[1] or session.options.default_copy_format, words[2] or '+')
+end
+
 return M

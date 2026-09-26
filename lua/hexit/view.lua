@@ -89,8 +89,16 @@ end
 
 local function heading(lay, session)
   local chars = {}
+  local selected = 0
+  if session.anchor ~= nil and session.root then
+    local start, stop = require('hexit.actions').selection(session)
+    selected = stop - start
+  end
+  local mode = session.mode == 'replace' and ('REPLACE ' .. session.cursor.area:upper())
+    or ((session.mode == 'visual' or session.mode == 'visual_line')
+      and ('VISUAL (' .. selected .. ' B)') or 'NORMAL')
   local prefix = session.cursor.area == 'hex'
-    and ('NORMAL H%d'):format(session.cursor.nibble) or 'NORMAL A'
+    and ('%s H%d'):format(mode, session.cursor.nibble) or (mode .. ' A')
   for i = 1, math.min(#prefix, lay.hex_start) do chars[i] = prefix:sub(i, i) end
   for col = 0, lay.bpr - 1 do
     local byte = (lay.uppercase_hex and '%02X' or '%02x'):format(col)
@@ -108,7 +116,7 @@ local function heading(lay, session)
   for i = 1, limit do if chars[i] == nil then chars[i] = ' ' end end
   local area = session.cursor.area:upper()
   local nibble = session.cursor.area == 'hex' and (session.cursor.nibble == 0 and ' HI' or ' LO') or ''
-  local status = ('  %s %s%s  %d B/row'):format(session.mode:upper(), area, nibble, lay.bpr)
+  local status = ('  %s %s%s  %d B/row'):format(mode, area, nibble, lay.bpr)
   return table.concat(chars, '', 1, limit) .. status
 end
 
@@ -121,8 +129,17 @@ end
 local function marks(session, lay, height)
   local buf = session.bufnr
   vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
-  if session.phase ~= 'ready' then return end
+  if session.phase ~= 'ready' and session.phase ~= 'saving' then return end
   local size = session.root.size
+  local selection_start, selection_stop
+  if session.anchor ~= nil then
+    selection_start = math.min(session.anchor, session.cursor.offset)
+    selection_stop = math.max(session.anchor, session.cursor.offset) + 1
+    if session.mode == 'visual_line' then
+      selection_start = math.floor(selection_start / lay.bpr) * lay.bpr
+      selection_stop = math.min(size, math.ceil(selection_stop / lay.bpr) * lay.bpr)
+    end
+  end
   for screen_row = 0, height - 1 do
     local offset = (session.top_row + screen_row) * lay.bpr
     local count = math.min(lay.bpr, size - offset)
@@ -141,6 +158,10 @@ local function marks(session, lay, height)
         if dirty[dirty_idx] and byte >= dirty[dirty_idx][1] then
           mark(buf, row, hex, hex + 2, 'HexModified', 20)
           if ascii then mark(buf, row, ascii, ascii + 1, 'HexModified', 20) end
+        end
+        if selection_start and byte >= selection_start and byte < selection_stop then
+          mark(buf, row, hex, hex + 2, 'HexSelection', 50)
+          if ascii then mark(buf, row, ascii, ascii + 1, 'HexSelection', 50) end
         end
         if byte == session.cursor.offset then
           if session.cursor.area == 'hex' then
@@ -180,7 +201,7 @@ function M.render(session)
     session.bytes_per_row = lay.bpr
     session.height = height
     session.owner_height = owner_height
-    if session.phase == 'ready' and size > 0 then
+    if (session.phase == 'ready' or session.phase == 'saving') and size > 0 then
       local rows = math.ceil(size / lay.bpr)
       session.top_row = math.max(0, math.min(session.top_row, math.max(0, rows - owner_height)))
       local row = math.floor(session.cursor.offset / lay.bpr)
@@ -190,7 +211,7 @@ function M.render(session)
       session.top_row = 0
     end
     local lines = {}
-    if session.phase == 'ready' then
+    if session.phase == 'ready' or session.phase == 'saving' then
       lines[1] = heading(lay, session)
       for i = 0, height - 1 do
         lines[#lines + 1] = layout.row(session.root, session.top_row + i, lay)
@@ -208,7 +229,7 @@ function M.render(session)
     vim.bo[buf].modified = modified
     if not changed then error(change_err) end
     marks(session, lay, height)
-    if session.phase == 'ready' and size > 0 then
+    if (session.phase == 'ready' or session.phase == 'saving') and size > 0 then
       local col = session.cursor.offset % lay.bpr
       local line = math.floor(session.cursor.offset / lay.bpr) - session.top_row + 2
       local screen = layout.cell(lay, col, session.cursor.nibble, session.cursor.area)

@@ -1,0 +1,336 @@
+local document = require('hexit.document')
+local view = require('hexit.view')
+
+local M = {}
+local register = document.empty()
+local LIMIT = 9007199254740991
+
+local function cursor(session)
+  return vim.deepcopy(session.cursor)
+end
+
+local function changed(session)
+  session.revision = session.revision + 1
+  session.on_change(session, 'edit')
+end
+
+function M.refresh_dirty(session)
+  local root, saved, revision = session.root, session.saved_root, session.revision
+  if not root or not saved or session.phase == 'closed' then return end
+  local buf = session.bufnr
+  if root == saved or root.size == 0 and saved.size == 0 then
+    vim.bo[buf].modified = false
+    return
+  end
+  if root.size ~= saved.size then
+    vim.bo[buf].modified = true
+    return
+  end
+  vim.bo[buf].modified = true
+  local at = 0
+  local function step()
+    if session.phase == 'closed' or session.revision ~= revision or session.saved_root ~= saved then return end
+    local stop = math.min(root.size, at + 65536)
+    if document.read(root, at, stop - at) ~= document.read(saved, at, stop - at) then return end
+    at = stop
+    if at == root.size then
+      vim.bo[buf].modified = false
+    else
+      vim.schedule(step)
+    end
+  end
+  vim.schedule(step)
+end
+
+function M.selection(session)
+  if not session.anchor or session.root.size == 0 then return nil end
+  local start, stop
+  if session.mode == 'visual_line' then
+    local bpr = session.bytes_per_row
+    start = math.floor(math.min(session.anchor, session.cursor.offset) / bpr) * bpr
+    stop = math.min(session.root.size, (math.floor(math.max(session.anchor, session.cursor.offset) / bpr) + 1) * bpr)
+  else
+    start = math.min(session.anchor, session.cursor.offset)
+    stop = math.max(session.anchor, session.cursor.offset) + 1
+  end
+  return start, stop
+end
+
+function M.escape(session)
+  if session.mode == 'replace' then M.commit(session) end
+  session.mode, session.anchor, session.eof_after_replace = 'normal', nil, false
+  view.render(session)
+end
+
+function M.visual(session, mode)
+  if session.root.size == 0 then return end
+  if session.mode == mode then
+    M.escape(session)
+  else
+    if not session.anchor then session.anchor = session.cursor.offset end
+    session.mode = mode
+    view.render(session)
+  end
+end
+
+function M.begin(session)
+  assert(not session.transaction, 'hexit: transaction already active')
+  session.transaction = { before = session.root, cursor_before = cursor(session), ranges = {} }
+end
+
+function M.apply(session, start, remove_len, insert_root)
+  local transaction = assert(session.transaction, 'hexit: transaction required')
+  session.root = document.splice(session.root, start, remove_len, insert_root)
+  transaction.ranges[#transaction.ranges + 1] = { start = start, len = remove_len, insert = insert_root.size }
+  changed(session)
+  M.refresh_dirty(session)
+end
+
+function M.commit(session)
+  local transaction = session.transaction
+  if not transaction then return end
+  session.transaction = nil
+  local before, after = transaction.before, session.root
+  if before == after then return end
+  local entry = {
+    before = before, after = after, cursor_before = transaction.cursor_before, cursor_after = cursor(session),
+  }
+  local function record()
+    session.undo[#session.undo + 1] = entry
+    session.redo = {}
+  end
+  if before.size ~= after.size then record(); return end
+  -- A no-op replacement keeps redo. Compare touched ranges in bounded slices;
+  -- while pending, another edit must not race history finalization.
+  local ranges, index, position = transaction.ranges, 1, 0
+  local revision = session.revision
+  local function compare()
+    local deadline = vim.uv.hrtime() + 8 * 1000000
+    local budget = 65536
+    while index <= #ranges and budget > 0 and vim.uv.hrtime() < deadline do
+      local range = ranges[index]
+      if range.len ~= range.insert then
+        session.pending = nil
+        record()
+        return
+      end
+      local take = math.min(range.len - position, budget)
+      if take > 0 then
+        if document.read(before, range.start + position, take) ~= document.read(after, range.start + position, take) then
+          session.pending = nil
+          record()
+          return
+        end
+        position, budget = position + take, budget - take
+      end
+      if position == range.len then index, position = index + 1, 0 end
+    end
+    if index > #ranges then
+      session.pending = nil
+      M.refresh_dirty(session)
+      return
+    end
+    session.pending = 'comparing edit'
+    vim.schedule(function()
+      if session.phase ~= 'closed' and session.revision == revision then compare() end
+    end)
+  end
+  compare()
+end
+
+local function replace_root(data)
+  return document.from_chunks({ data })
+end
+
+local function fill_root(byte, len)
+  local chunks, block = {}, string.rep(string.char(byte), 65536)
+  while len > 0 do
+    local take = math.min(len, 65536)
+    chunks[#chunks + 1] = take == 65536 and block or block:sub(1, take)
+    len = len - take
+  end
+  return document.from_chunks(chunks)
+end
+
+local function count_check(start, count, size)
+  return count > 0 and start <= size and count <= size - start
+end
+
+function M.replace(session, value, count)
+  local root, cur = session.root, session.cursor
+  if session.mode == 'visual' or session.mode == 'visual_line' then
+    local start, stop = M.selection(session)
+    if not start then return false, 'empty selection' end
+    local byte = cur.area == 'hex' and tonumber(value, 16) or value:byte()
+    if not byte then return false, 'expected a hex Byte' end
+    M.begin(session)
+    M.apply(session, start, stop - start, fill_root(byte, stop - start))
+    session.cursor.offset, session.cursor.nibble = start, 0
+    session.mode, session.anchor = 'normal', nil
+    M.commit(session)
+    view.render(session)
+    return true
+  end
+  local start, length, result
+  if cur.area == 'hex' then
+    local advance = math.floor((cur.nibble + count - 1) / 2)
+    if count < 1 or advance >= root.size - cur.offset then return false, 'replace exceeds EOF' end
+    local first_byte, last_byte = cur.offset, cur.offset + advance
+    local digit = tonumber(value, 16)
+    if not digit then return false, 'expected a hex digit' end
+    local chunks, offset = {}, first_byte
+    for chunk in document.iter(root, first_byte, last_byte - first_byte + 1, 65536) do
+      local within = 0
+      chunks[#chunks + 1] = chunk:gsub('.', function(char)
+        local old = char:byte()
+        local pos = (offset - first_byte + within) * 2 - cur.nibble
+        within = within + 1
+        if pos >= 0 and pos < count then
+          old = old % 16 + digit * 16
+        end
+        if pos + 1 >= 0 and pos + 1 < count then
+          old = old - old % 16 + digit
+        end
+        return string.char(old)
+      end)
+      offset = offset + #chunk
+    end
+    start, length, result = first_byte, last_byte - first_byte + 1, document.from_chunks(chunks)
+    M.begin(session)
+    cur.offset, cur.nibble = last_byte, (cur.nibble + count - 1) % 2
+  else
+    start, length = cur.offset, count
+    if not count_check(start, count, root.size) then return false, 'replace exceeds EOF' end
+    result = fill_root(value:byte(), count)
+    M.begin(session)
+    cur.offset = start + count - 1
+  end
+  M.apply(session, start, length, result)
+  M.commit(session)
+  view.render(session)
+  return true
+end
+
+function M.replace_mode(session, value)
+  local cur, size = session.cursor, session.root.size
+  if session.eof_after_replace or size == 0 then return false, 'replace exceeds EOF' end
+  local start = cur.offset
+  local data
+  if cur.area == 'hex' then
+    local previous = document.read(session.root, start, 1):byte()
+    local digit = tonumber(value, 16)
+    if not digit then return false, 'expected a hex digit' end
+    data = string.char(cur.nibble == 0 and (previous % 16 + digit * 16) or (previous - previous % 16 + digit))
+  else
+    data = value
+  end
+  M.apply(session, start, 1, replace_root(data))
+  if cur.area == 'hex' and cur.nibble == 0 then
+    cur.nibble = 1
+  elseif start + 1 < size then
+    cur.offset = start + 1
+    cur.nibble = 0
+  else
+    session.eof_after_replace = true
+  end
+  view.render(session)
+  return true
+end
+
+function M.yank(session, count)
+  if session.root.size == 0 then return false, 'empty file' end
+  local start, stop = M.selection(session)
+  if not start then
+    start = session.cursor.offset
+    stop = math.min(session.root.size, start + count)
+  end
+  register = document.slice(session.root, start, stop - start)
+  if session.anchor then
+    session.cursor.offset, session.cursor.nibble = start, 0
+    M.escape(session)
+  end
+  return true
+end
+
+local function repeat_root(root, count)
+  if count > math.floor(LIMIT / root.size) then return nil end
+  local pieces, ends, total = {}, {}, 0
+  for _ = 1, count do
+    for _, piece in ipairs(root.pieces) do
+      total = total + piece.len
+      pieces[#pieces + 1] = { data = piece.data, start = piece.start, len = piece.len }
+      ends[#ends + 1] = total
+    end
+  end
+  return { pieces = pieces, ends = ends, size = total }
+end
+
+function M.paste(session, after, count)
+  if session.anchor then return false, 'paste in Visual is not supported' end
+  if register.size == 0 then return false, 'binary register is empty' end
+  local repeated = repeat_root(register, count)
+  if not repeated or repeated.size > LIMIT - session.root.size then return false, 'paste exceeds maximum size' end
+  local start = session.root.size == 0 and 0 or session.cursor.offset + (after and 1 or 0)
+  M.begin(session)
+  M.apply(session, start, 0, repeated)
+  session.cursor.offset, session.cursor.nibble = start, 0
+  M.commit(session)
+  view.render(session)
+  return true
+end
+
+function M.history(session, redo, count)
+  if session.anchor then M.escape(session) end
+  local source, dest = redo and session.redo or session.undo, redo and session.undo or session.redo
+  local changed_any = false
+  for _ = 1, math.min(count, #source) do
+    local entry = table.remove(source)
+    dest[#dest + 1] = entry
+    session.root = redo and entry.after or entry.before
+    session.cursor = vim.deepcopy(redo and entry.cursor_after or entry.cursor_before)
+    session.cursor.offset = math.min(session.cursor.offset, math.max(0, session.root.size - 1))
+    session.revision = session.revision + 1
+    changed_any = true
+  end
+  if changed_any then
+    M.refresh_dirty(session)
+    view.render(session)
+  end
+end
+
+function M.copy_as(session, name, target)
+  local format = require('hexit.format')
+  if target ~= '+' and target ~= '*' and target ~= '"' then
+    error('hexit: Copy As register must be +, * or "', 2)
+  end
+  local encoder = format.new(name)
+  local start, stop = M.selection(session)
+  if not start then
+    start, stop = session.cursor.offset, math.min(session.cursor.offset + 1, session.root.size)
+  end
+  if start == stop then error('hexit: no Byte to copy', 2) end
+  if target ~= '"' then
+    local provider = vim.fn['provider#clipboard#Executable']()
+    if provider == 0 or provider == '' then
+      error('hexit: system clipboard provider is unavailable', 2)
+    end
+  end
+  local root, revision = session.root, session.revision
+  local iterator = document.iter(root, start, stop - start, 65536)
+  local function step()
+    if session.phase == 'closed' or session.revision ~= revision then return end
+    local chunk = iterator()
+    if chunk then
+      encoder:push(chunk)
+      vim.schedule(step)
+    else
+      local ok, err = pcall(vim.fn.setreg, target, encoder:finish(), 'v')
+      if not ok then vim.notify('hexit: Copy As failed: ' .. tostring(err), vim.log.levels.ERROR) end
+    end
+  end
+  vim.schedule(step)
+end
+
+function M.register() return register end
+
+return M

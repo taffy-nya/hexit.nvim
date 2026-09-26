@@ -42,6 +42,8 @@ function M.close(session)
   if session.phase == 'closed' then return end
   view.detach(session)
   motion.cancel(session)
+  input.clear_temporary(session)
+  session.transaction = nil
   session.phase = 'closed'
   session.generation = session.generation + 1
   session.token.cancelled = true
@@ -96,6 +98,7 @@ function M.create(path, options, on_change)
   })
   view.attach(session)
   input.attach(session)
+  require('hexit.write').attach(session)
   vim.api.nvim_set_current_buf(buf)
   session.token.on_progress = function(read, total)
     if session.phase ~= 'loading' then return end

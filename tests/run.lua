@@ -6,6 +6,10 @@ local modules = {
   'tests.cases.layout',
   'tests.cases.motion',
   'tests.cases.navigation',
+  'tests.cases.edit',
+  'tests.cases.format',
+  'tests.cases.copy',
+  'tests.cases.write',
 }
 local failed, total = 0, 0
 

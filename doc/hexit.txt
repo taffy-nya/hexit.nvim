@@ -1,0 +1,134 @@
+*hexit.txt*  Binary Hex/ASCII editor for Neovim 0.12+
+
+=============================================================================
+INTRODUCTION                                                         *hexit*
+
+Hexit opens an existing regular file as a binary snapshot in a separate
+'acwrite' buffer. It shows a fixed title and a bounded Offset/Hex/ASCII
+viewport, not a whole-file text conversion. Use |:Hex| to open a file. Source
+files changed by another process are NOT detected. Do not edit the file
+elsewhere while using Hexit: |:write| replaces the source snapshot.
+
+Search, Insert, Delete, read-only mode and system clipboard paste are not
+available in this checkout. The target is the first-stage implementation;
+search follows in phase4.
+
+=============================================================================
+COMMANDS                                                        *hexit-commands*
+
+:Hex [path]              Open an existing regular file; with no path, open the
+                         current unmodified named ordinary buffer's file.
+                         Reopening an active file focuses its Hex buffer.
+:HexGoto {offset}        Move to a 0-based Byte offset in decimal or 0x hex.
+                         Invalid/out-of-file offsets are errors.
+:HexBytesPerRow {width}  Select 8, 16, 32 or auto in this buffer; preserve
+                         the logical Byte and recompute linewise selection.
+:HexCopyAs [format] [register]
+                         Encode current Byte or Visual range as text. Default
+                         format is `hex`; default register is `+`. Registers
+                         `+`, `*`, `"` only. See |hexit-copy-as|.
+:write                   Save complete binary document to source path through
+                         a sibling temporary file, fsync, close, rename.
+                         Failed write keeps original file, dirty state and
+                         history. `:wq` fails without exiting if write fails.
+                         No alternate path, range, append, rename/:saveas,
+                         or `:w!` semantics. Windows replace-rename failure
+                         does NOT truncate the original file.
+
+=============================================================================
+CONFIGURATION                                               *hexit-configuration*
+
+Optional before opening sessions: >lua
+  require('hexit').setup({
+    bytes_per_row = 16,       -- 8 | 16 | 32 | 'auto'
+    byte_group_size = 1,      -- 1 | 2 | 4, display only
+    uppercase_hex = true,
+    show_ascii = true,
+    show_offset = true,
+    default_copy_format = 'hex',
+    search_ignorecase = nil,  -- reserved for phase4 search
+    search_smartcase = nil,
+    mappings = true,
+  })
+<
+Unknown/invalid fields fail. Repeated setup affects new sessions only.
+`mappings=false` installs stable `<Plug>(Hexit-{Action})` maps without default
+keys; replace input temporarily captures printable keys and restores user
+mappings on exit. Hex windows sharing a buffer share one cursor/viewport; the
+narrowest window determines auto row width, the active window controls the
+visible cursor/page height. Hex temporarily uses window-local scrolloff=0 and
+restores the prior local setting (including global inheritance) on leaving.
+
+=============================================================================
+MOVEMENT                                                          *hexit-keys*
+
+The actual Neovim mode stays Normal. Hexit maintains logical Normal, Visual,
+Visual Line, and Replace modes. Counts are decimal, limited to 2,147,483,647.
+`0` without a preceding count is line start. `Esc` clears count and prefix.
+
+h/l, Left/Right    Hex: nibble-by-nibble; ASCII: Byte-by-Byte.
+j/k, Up/Down       Row motion, preserving preferred Byte column through EOF.
+w/b/e              Hex: Byte/low-nibble motion; ASCII: word/space/punctuation
+                   runs determined from original Bytes, not displayed dots.
+0/$                Current row start/end; counted `$` goes to later row end.
+gg/G               Beginning/end; count specifies 1-based display row.
+Ctrl-u/d           Half-page up/down based on active window height.
+Ctrl-b/f           Full page up/down with two rows of overlap.
+Tab                Switch Hex/ASCII at same offset; returning Hex chooses high
+                   nibble. Hidden ASCII cannot be entered.
+Mouse              Click a Byte cell to move; wheel scrolls three rows.
+Ctrl-e/y           Blocked to keep title at the top.
+
+=============================================================================
+SELECT AND EDIT                                             *hexit-editing*
+
+v / V    Toggle Byte or entire-display-row Visual selection. Switching between
+         v/V retains anchor. Motions and Tab extend the range; Esc exits.
+         Selection length appears in the title. Empty files have no selection.
+r{digit}  Hex: replace current nibble, count repeats digit over consecutive
+         nibble positions. ASCII: replace current Byte, count repeats one
+         printable ASCII character. Beyond EOF rejects the entire operation.
+Visual r{HH}  Fill selection with a Hex Byte (exactly two hex digits).
+Visual r{char}  Fill selection with one printable ASCII Byte. One undo step.
+R        Replace Mode: overwrite in place from the current nibble/Byte. Input
+         updates both views immediately, crosses row boundaries, never grows
+         the document; after the last Byte, further input is refused. Backspace,
+         arrows and Tab do not move in R. Esc commits all changes as one undo
+         step. Counted R is unsupported.
+y        Copy current complete Byte or count Bytes, truncated at EOF, into
+         Hexit's private binary register. Visual y copies the whole selection.
+         It does not wait for a second `y`; use V y for a display row.
+p / P    Insert the binary register after/before the current Byte; in an empty
+         file both insert at 0. Count repeats insertion once as one undo step.
+         Visual paste is unsupported. System clipboard Paste is not provided.
+u / Ctrl-r  Undo/redo counted edits. Visual exits first. Saved history remains
+            available: undoing a save may mark the buffer modified again.
+
+No partial Byte file state exists. Modified highlighting compares each current
+logical Byte offset with the same offset in the last saved snapshot; inserted
+Bytes and a shifted suffix can be highlighted. Full-content equality (including
+manual restoration) clears 'modified' asynchronously; while comparing, the
+buffer remains conservatively modified. History is not limited and may consume
+more memory as edits accumulate.
+
+=============================================================================
+COPY AS                                                      *hexit-copy-as*
+
+Use `:HexCopyAs [format] [register]` on the current Byte or selected range.
+Output has no trailing newline. The bytes 00 41 7F FF yield: >
+  hex       00 41 7F FF
+  compact   00417FFF
+  escaped   \x00\x41\x7F\xFF
+  c         { 0x00, 0x41, 0x7F, 0xFF }
+  cstring   "\x00\x41\x7F\xFF"
+  python    b"\x00\x41\x7f\xff"
+  rust      [0x00, 0x41, 0x7f, 0xff]
+  ascii     .A..
+  base64    AEF//w==
+<
+`ascii` is lossy: nonprintable Bytes display as `.`. `+`/`*` require a system
+clipboard provider; `"` writes the unnamed Neovim text register instead.
+Copy As never changes the private binary register. Large exports stream in
+64KiB slices and are cancelled when the source changes or closes.
+
+vim:tw=78:ts=8:noet:ft=help:norl:
