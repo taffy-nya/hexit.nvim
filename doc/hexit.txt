@@ -98,9 +98,9 @@ Visual r{char}  Fill selection with one printable ASCII Byte. One undo step.
 R        Replace Mode: overwrite in place from the current nibble/Byte. Input
          updates both views immediately, crosses row boundaries, never grows
          the document; after the last Byte, further input is refused.
-         Backspace, arrows, Tab, page keys and mouse wheel do not navigate
-         in R. Esc commits all changes as one undo step. Counted R is
-         unsupported.
+         Backspace, arrows, Tab, page keys, wheel and mouse clicks do not
+         reposition in R. Esc commits all changes as one undo step.
+         Counted R is unsupported.
          In Hex r/R, `:` opens the native command line and commits active R.
          In ASCII r/R, `:` writes the literal Byte 0x3A; press Esc first
          when a command is intended.

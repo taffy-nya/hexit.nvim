@@ -1,6 +1,7 @@
 local H = require('tests.helpers')
 local doc = require('hexit.document')
 local view = require('hexit.view')
+local layout = require('hexit.layout')
 
 local function open(data)
   local path = H.temp_file(data)
@@ -89,6 +90,29 @@ return {
       H.eq(value(s), original)
       keys('r<C-f>')
       H.eq(s.cursor.offset, 0)
+      H.eq(value(s), original)
+    end,
+  },
+  {
+    name = 'EDIT Replace blocks CursorMoved hit until Esc and restores normal hit testing',
+    run = function()
+      local original = string.rep('A', 1024)
+      local s = open(original)
+      keys('RDE')
+      H.eq(s.cursor.offset, 1)
+      local replacement_cursor = vim.api.nvim_win_get_cursor(0)
+      local clicked = { 4, layout.cell(s.layout, 0, 0, 'hex') }
+      vim.api.nvim_win_set_cursor(0, clicked)
+      vim.api.nvim_exec_autocmds('CursorMoved', { buffer = s.bufnr })
+      H.eq(s.cursor.offset, 1)
+      H.eq(vim.api.nvim_win_get_cursor(0), replacement_cursor)
+      keys('AD<Esc>')
+      H.eq(value(s), H.bytes(0xDE, 0xAD) .. string.rep('A', 1022))
+      H.eq(#s.undo, 1)
+      vim.api.nvim_win_set_cursor(0, clicked)
+      vim.api.nvim_exec_autocmds('CursorMoved', { buffer = s.bufnr })
+      H.eq(s.cursor.offset, 32)
+      keys('u')
       H.eq(value(s), original)
     end,
   },

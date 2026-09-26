@@ -283,6 +283,10 @@ function M.attach(session)
     callback = function()
       if rendering or (session.phase ~= 'ready' and session.phase ~= 'saving')
         or session.root.size == 0 then return end
+      if session.input and session.input.replace then
+        M.render(session)
+        return
+      end
       local win = vim.api.nvim_get_current_win()
       local pos = vim.api.nvim_win_get_cursor(win)
       local cursor = layout.hit(session.layout, pos[1], pos[2], session.top_row, session.root.size)
