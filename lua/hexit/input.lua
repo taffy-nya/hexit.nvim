@@ -64,6 +64,14 @@ end
 
 local function receive(session, key)
   local state = session.input
+  if session.phase ~= 'ready' then message('wait until the binary save finishes'); return end
+  if key == ':' and session.cursor.area == 'hex' then
+    clear_temporary(session)
+    state.replace, state.first, state.second_pending, state.replace_count = nil, nil, nil, nil
+    if session.mode == 'replace' then actions.escape(session) end
+    vim.api.nvim_feedkeys(':', 'nit', false)
+    return
+  end
   if key == '<Esc>' then
     clear_temporary(session)
     state.replace, state.first, state.second_pending, state.replace_count = nil, nil, nil, nil
@@ -120,8 +128,25 @@ local function temporary(session)
   session.input.temporary = saved
 end
 
+local navigation = {
+  Left = true, Right = true, Up = true, Down = true,
+  WordNext = true, WordPrev = true, WordEnd = true,
+  First = true, Last = true, RowStart = true, RowEnd = true,
+  HalfUp = true, HalfDown = true, PageUp = true, PageDown = true,
+  WheelUp = true, WheelDown = true, SwitchArea = true,
+  Visual = true, VisualLine = true, Yank = true, Escape = true, GPrefix = true,
+}
+for digit = 0, 9 do navigation['Digit' .. digit] = true end
+
 local function dispatch(session, action, key)
-  if session.phase ~= 'ready' then message('wait until the binary snapshot is ready'); return end
+  if session.phase ~= 'ready' and session.phase ~= 'saving' then
+    message('wait until the binary snapshot is ready')
+    return
+  end
+  if session.phase == 'saving' and not navigation[action] then
+    message('wait until the binary save finishes')
+    return
+  end
   if session.pending and (action == 'Replace' or action == 'ReplaceMode'
     or action == 'PasteAfter' or action == 'PasteBefore'
     or action == 'Undo' or action == 'Redo') then
@@ -206,7 +231,7 @@ local function dispatch(session, action, key)
   else
     motion.cancel(session)
     motion.move(session, action, count, has_count, session.owner_height, function()
-      if session.phase == 'ready' then view.render(session) end
+      if session.phase == 'ready' or session.phase == 'saving' then view.render(session) end
     end)
     if session.anchor then view.render(session) end
   end

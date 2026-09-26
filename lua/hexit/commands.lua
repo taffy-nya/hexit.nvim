@@ -4,15 +4,17 @@ local motion = require('hexit.motion')
 
 local M = {}
 
-local function current()
+local function current(allow_saving)
   local session = sessions.get(vim.api.nvim_get_current_buf())
   if not session then error('hexit: command requires a Hexit buffer', 2) end
-  if session.phase ~= 'ready' then error('hexit: binary snapshot is not ready', 2) end
+  if session.phase ~= 'ready' and (not allow_saving or session.phase ~= 'saving') then
+    error('hexit: binary snapshot is not ready', 2)
+  end
   return session
 end
 
 function M.goto_offset(text)
-  local session = current()
+  local session = current(true)
   local hex = text:match('^0x([%da-fA-F]+)$')
   local decimal = text:match('^(%d+)$')
   if not hex and not decimal then error('hexit: offset must be decimal or 0x-prefixed hex', 2) end
@@ -33,7 +35,7 @@ function M.goto_offset(text)
 end
 
 function M.bytes_per_row(text)
-  local session = current()
+  local session = current(true)
   local width = ({ ['8'] = 8, ['16'] = 16, ['32'] = 32, auto = 'auto' })[text]
   if not width then
     error('hexit: bytes per row must be 8, 16, 32 or auto', 2)

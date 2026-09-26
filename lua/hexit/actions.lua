@@ -85,6 +85,33 @@ function M.apply(session, start, remove_len, insert_root)
   changed(session)
   M.refresh_dirty(session)
 end
+local function apply_replace_mode(session, start, data)
+  local transaction = assert(session.transaction, 'hexit: transaction required')
+  local run = transaction.run
+  if not run or (start ~= run.stop and start ~= run.stop - 1) then
+    local range = { start = start, len = 1, insert = 1 }
+    run = { start = start, stop = start + 1, block_start = start, range = range }
+    transaction.run = run
+    transaction.ranges[#transaction.ranges + 1] = range
+  elseif start == run.stop then
+    run.stop = start + 1
+    run.range.len, run.range.insert = run.stop - run.start, run.stop - run.start
+  end
+
+  local block
+  if start == run.block_start + (run.block_data and #run.block_data or 0) - 1 then
+    -- Low nibble of the most recently replaced Byte.
+    block = run.block_data:sub(1, -2) .. data
+  elseif run.block_data and start == run.block_start + #run.block_data and #run.block_data < 65536 then
+    block = run.block_data .. data
+  else
+    run.block_start = start
+    block = data
+  end
+  session.root = document.splice(session.root, run.block_start, #block, document.from_chunks({ block }))
+  run.block_data = block
+end
+
 
 function M.commit(session)
   local transaction = session.transaction
@@ -224,7 +251,7 @@ function M.replace_mode(session, value)
   else
     data = value
   end
-  M.apply(session, start, 1, replace_root(data))
+  apply_replace_mode(session, start, data)
   if cur.area == 'hex' and cur.nibble == 0 then
     cur.nibble = 1
   elseif start + 1 < size then
@@ -233,7 +260,8 @@ function M.replace_mode(session, value)
   else
     session.eof_after_replace = true
   end
-  view.render(session)
+  changed(session)
+  M.refresh_dirty(session)
   return true
 end
 
@@ -255,11 +283,32 @@ end
 local function repeat_root(root, count)
   if count > math.floor(LIMIT / root.size) then return nil end
   local pieces, ends, total = {}, {}, 0
-  for _ = 1, count do
-    for _, piece in ipairs(root.pieces) do
-      total = total + piece.len
-      pieces[#pieces + 1] = { data = piece.data, start = piece.start, len = piece.len }
+  if root.size <= 65536 then
+    -- Expand tiny registers once per 64KiB block, not once per copied Byte.
+    local source = document.read(root, 0, root.size)
+    local per_block = math.min(count, math.floor(65536 / root.size))
+    local block = string.rep(source, per_block)
+    local full = math.floor(count / per_block)
+    for _ = 1, full do
+      total = total + #block
+      pieces[#pieces + 1] = { data = block, start = 0, len = #block }
       ends[#ends + 1] = total
+    end
+    local rest = count % per_block
+    if rest > 0 then
+      local tail = string.rep(source, rest)
+      total = total + #tail
+      pieces[#pieces + 1] = { data = tail, start = 0, len = #tail }
+      ends[#ends + 1] = total
+    end
+  else
+    -- Large register pieces already share their immutable backing strings.
+    for _ = 1, count do
+      for _, piece in ipairs(root.pieces) do
+        total = total + piece.len
+        pieces[#pieces + 1] = { data = piece.data, start = piece.start, len = piece.len }
+        ends[#ends + 1] = total
+      end
     end
   end
   return { pieces = pieces, ends = ends, size = total }
@@ -268,8 +317,10 @@ end
 function M.paste(session, after, count)
   if session.anchor then return false, 'paste in Visual is not supported' end
   if register.size == 0 then return false, 'binary register is empty' end
+  if count > math.floor((LIMIT - session.root.size) / register.size) then
+    return false, 'paste exceeds maximum size'
+  end
   local repeated = repeat_root(register, count)
-  if not repeated or repeated.size > LIMIT - session.root.size then return false, 'paste exceeds maximum size' end
   local start = session.root.size == 0 and 0 or session.cursor.offset + (after and 1 or 0)
   M.begin(session)
   M.apply(session, start, 0, repeated)

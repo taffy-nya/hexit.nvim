@@ -31,6 +31,8 @@ COMMANDS                                                        *hexit-commands*
                          a sibling temporary file, fsync, close, rename.
                          Failed write keeps original file, dirty state and
                          history. `:wq` fails without exiting if write fails.
+                         Navigation and viewport movement remain available
+                         while saving; edits and undo/redo are frozen.
                          No alternate path, range, append, rename/:saveas,
                          or `:w!` semantics. Windows replace-rename failure
                          does NOT truncate the original file.
@@ -95,6 +97,9 @@ R        Replace Mode: overwrite in place from the current nibble/Byte. Input
          the document; after the last Byte, further input is refused. Backspace,
          arrows and Tab do not move in R. Esc commits all changes as one undo
          step. Counted R is unsupported.
+         In Hex r/R, `:` opens the native command line and commits active R.
+         In ASCII r/R, `:` writes the literal Byte 0x3A; press Esc first
+         when a command is intended.
 y        Copy current complete Byte or count Bytes, truncated at EOF, into
          Hexit's private binary register. Visual y copies the whole selection.
          It does not wait for a second `y`; use V y for a display row.

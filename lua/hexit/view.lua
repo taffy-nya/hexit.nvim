@@ -246,7 +246,7 @@ function M.render(session)
 end
 
 function M.scroll(session, rows)
-  if session.phase ~= 'ready' or session.root.size == 0 then return end
+  if (session.phase ~= 'ready' and session.phase ~= 'saving') or session.root.size == 0 then return end
   local max_row = math.max(0, math.ceil(session.root.size / session.bytes_per_row) - session.owner_height)
   session.top_row = math.max(0, math.min(max_row, session.top_row + rows))
   local row = math.floor(session.cursor.offset / session.bytes_per_row)
@@ -282,7 +282,8 @@ function M.attach(session)
   vim.api.nvim_create_autocmd('CursorMoved', {
     group = session.augroup, buffer = buf,
     callback = function()
-      if rendering or session.phase ~= 'ready' or session.root.size == 0 then return end
+      if rendering or (session.phase ~= 'ready' and session.phase ~= 'saving')
+        or session.root.size == 0 then return end
       local win = vim.api.nvim_get_current_win()
       local pos = vim.api.nvim_win_get_cursor(win)
       local cursor = layout.hit(session.layout, pos[1], pos[2], session.top_row, session.root.size)

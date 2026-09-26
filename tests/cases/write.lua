@@ -221,4 +221,44 @@ return {
       H.eq(H.read_disk(path), original)
     end,
   },
+  {
+    name = 'WRITE delayed save permits navigation but freezes edits and undo',
+    run = function()
+      local original = string.rep('A', 128)
+      local path = H.temp_file(original)
+      local s = open(path)
+      keys('rF')
+      local snapshot = value(s)
+      local saved = s.saved_root
+      local old_save = io_module.save
+      local seen
+      io_module.save = function(root, target, token, callback)
+        vim.schedule(function()
+          local ok, err = pcall(function()
+            H.eq(s.phase, 'saving')
+            keys('2l')
+            H.eq(s.cursor.offset, 1)
+            vim.cmd('HexGoto 24')
+            vim.cmd('HexBytesPerRow 8')
+            keys('l')
+            H.eq({ s.cursor.offset, s.cursor.nibble, s.bytes_per_row }, { 24, 1, 8 })
+            keys('rFu')
+            H.eq(value(s), snapshot)
+            H.eq(s.saved_root, saved)
+            H.eq(#s.undo, 1)
+          end)
+          seen = { ok, err }
+        end)
+        vim.defer_fn(function() old_save(root, target, token, callback) end, 50)
+      end
+      local ok, err = pcall(vim.cmd, 'write')
+      io_module.save = old_save
+      assert(ok, err)
+      assert(seen and seen[1], seen and seen[2] or 'save did not service navigation')
+      H.eq(H.read_disk(path), snapshot)
+      H.eq(s.cursor.offset, 24)
+      H.eq(s.phase, 'ready')
+      H.eq(vim.bo[s.bufnr].modified, false)
+    end,
+  },
 }

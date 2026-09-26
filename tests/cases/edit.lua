@@ -255,4 +255,67 @@ return {
       H.eq(value(s), H.bytes(0, 1))
     end,
   },
+  {
+    name = 'EDIT counted Byte paste uses bounded pieces and remains one undo',
+    run = function()
+      local s = open(H.bytes(0xAB))
+      keys('y131072p')
+      H.eq(s.root.size, 131073)
+      H.eq(doc.read(s.root, 0, 3), H.bytes(0xAB, 0xAB, 0xAB))
+      H.eq(doc.read(s.root, 131070, 3), H.bytes(0xAB, 0xAB, 0xAB))
+      assert(#s.root.pieces <= 4, 'counted single-Byte paste allocated a piece for each repeat')
+      H.eq(#s.undo, 1)
+      keys('u')
+      H.eq(value(s), H.bytes(0xAB))
+    end,
+  },
+  {
+    name = 'EDIT long R coalesces pieces while updating visible Bytes immediately',
+    run = function()
+      local original = string.rep('A', 2050)
+      local s = open(original)
+      keys('<Tab>RBC')
+      H.eq(doc.read(s.root, 0, 3), 'BCA')
+      local row = vim.api.nvim_buf_get_lines(s.bufnr, 1, 2, false)[1]
+      assert(row:find('42 43 41', 1, true), row)
+      keys(string.rep('D', 2046) .. '<Esc>')
+      H.eq(doc.read(s.root, 0, 2050), 'BC' .. string.rep('D', 2046) .. 'AA')
+      assert(#s.root.pieces <= 4, 'Replace Mode kept one piece per Byte')
+      H.eq(#s.undo, 1)
+      keys('u')
+      H.eq(value(s), original)
+    end,
+  },
+  {
+    name = 'EDIT Hex R and pending r hand colon back to native command line',
+    run = function()
+      local s = open(H.bytes(0, 1, 2))
+      keys('RDE:HexGoto 2<CR>')
+      H.eq(value(s), H.bytes(0xDE, 1, 2))
+      H.eq(s.mode, 'normal')
+      H.eq(s.cursor.offset, 2)
+      H.eq(#s.undo, 1)
+      keys('u')
+      H.eq(value(s), H.bytes(0, 1, 2))
+      keys('r:HexGoto 1<CR>')
+      H.eq(value(s), H.bytes(0, 1, 2))
+      H.eq(s.cursor.offset, 1)
+      keys('l')
+      H.eq(s.cursor.nibble, 1)
+    end,
+  },
+  {
+    name = 'EDIT ASCII r and R keep colon as literal printable Byte',
+    run = function()
+      local s = open('ab')
+      keys('<Tab>R:<Esc>')
+      H.eq(value(s), ':b')
+      H.eq(s.mode, 'normal')
+      keys('r:')
+      H.eq(value(s), '::')
+      H.eq(#s.undo, 2)
+      keys('2u')
+      H.eq(value(s), 'ab')
+    end,
+  },
 }
