@@ -1,6 +1,7 @@
 local sessions = require('hexit.session')
 local view = require('hexit.view')
 local motion = require('hexit.motion')
+local search = require('hexit.search')
 
 local M = {}
 
@@ -52,6 +53,24 @@ function M.copy_as(text)
   for word in text:gmatch('%S+') do words[#words + 1] = word end
   if #words > 2 then error('hexit: expected [format] [register]', 2) end
   require('hexit.actions').copy_as(session, words[1] or session.options.default_copy_format, words[2] or '+')
+end
+
+function M.search(text)
+  local session = current()
+  if session.input then
+    session.input.search_prompt = (session.input.search_prompt or 0) + 1
+  end
+  local kind, pattern = text:match('^(%S+)%s(.*)$')
+  if kind ~= 'hex' and kind ~= 'ascii' then
+    error('hexit: expected HexSearch {hex|ascii} {pattern}', 2)
+  end
+  if pattern == '' and session.search and session.search.query then
+    search.start(session, session.search.query, 1, 1)
+    return
+  end
+  local query, err = search.parse(kind, pattern, session.options)
+  if not query then error('hexit: ' .. err, 2) end
+  search.start(session, query, 1, 1)
 end
 
 return M

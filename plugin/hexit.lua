@@ -15,5 +15,8 @@ end, { nargs = 1, complete = function() return { '8', '16', '32', 'auto' } end }
 vim.api.nvim_create_user_command('HexCopyAs', function(command)
   require('hexit.commands').copy_as(command.args)
 end, { nargs = '*' })
+vim.api.nvim_create_user_command('HexSearch', function(command)
+  require('hexit.commands').search(command.args)
+end, { nargs = '+', complete = function() return { 'hex', 'ascii' } end })
 require('hexit.highlight').setup()
 vim.g.loaded_hexit = true

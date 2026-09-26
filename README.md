@@ -1,6 +1,6 @@
 # Hexit
 
-Hexit is a Neovim 0.12+ hex-editor plugin under staged implementation. This checkout implements **phase3 of the first-stage plan**: binary snapshots, bounded Hex/ASCII navigation, Visual selection, byte editing, yank/paste, undo/redo, Copy As, and binary saving. Search is not yet available.
+Hexit is a Neovim 0.12+ hex-editor plugin under staged implementation. This checkout implements **phase4 of the first-stage plan**: binary snapshots, bounded Hex/ASCII navigation, Visual selection, byte editing, yank/paste, undo/redo, Copy As, binary saving, and streaming exact-byte/ASCII search.
 
 ## Load a binary snapshot
 
@@ -16,6 +16,8 @@ require('hexit').setup({
   show_ascii = true,
   show_offset = true,
   default_copy_format = 'hex',
+  search_ignorecase = nil, -- nil reads vim.o.ignorecase when starting a query
+  search_smartcase = nil,  -- nil reads vim.o.smartcase when starting a query
   mappings = true,
 })
 ```
@@ -38,6 +40,10 @@ During `:w`, navigation, area switching, and viewport movement remain available;
 
 `:HexCopyAs [format] [register]` exports the current Byte or the Visual range as text. Formats: `hex`, `compact`, `escaped`, `c`, `cstring`, `python`, `rust`, `ascii` (nonprintable bytes become `.`), `base64`. The default format comes from `default_copy_format`; the default register is the system clipboard `+`, or use `*` / `\"`. A missing clipboard provider reports an error. Copy As does not change the private binary yank register. Encoding is asynchronous for large selections, and cancels if the source changes or closes.
 
+## Search
+
+Press `/` or `?` for a forward or backward prompt in the current Hex/ASCII area; `:HexSearch hex 00 FF` or `:HexSearch ascii literal text` selects the kind explicitly. Hex accepts compact even digit pairs or whitespace-separated two-digit Bytes (optional `0x` per Byte). ASCII accepts literal printable characters including spaces; `.` and `*` are not regex. Use Hex for NUL/high Bytes. Ignorecase and smartcase are captured when starting an ASCII query; only ASCII letters fold. `n` follows the last query direction, `N` reverses it temporarily, and counts wrap through overlapping matches. `Esc` cancels an in-progress navigation; edits/undo/redo rescan the changed snapshot. The title shows the current ordinal/total or `searching…` while scanning; both Byte areas highlight visible matches, with the current match distinct. Search stores counts by 64KiB block rather than a per-hit list.
+
 ## Development verification
 
 From the repository root:
@@ -46,4 +52,4 @@ From the repository root:
 nvim --headless -u tests/minimal_init.lua -i NONE -l tests/run.lua
 ```
 
-The phase3 suite exercises the binary model, snapshot I/O, navigation, selection, editing, history, binary saving, and Copy As. Search and final TUI acceptance belong to later phases.
+The phase4 suite exercises the binary model, snapshot I/O, navigation, selection, editing, history, binary saving, Copy As, streaming search, and search UI. Final TUI acceptance belongs to phase5.

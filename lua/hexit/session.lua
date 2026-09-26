@@ -2,6 +2,7 @@ local io = require('hexit.io')
 local view = require('hexit.view')
 local input = require('hexit.input')
 local motion = require('hexit.motion')
+local search = require('hexit.search')
 
 local M = {}
 local by_buffer = {}
@@ -42,6 +43,7 @@ function M.close(session)
   if session.phase == 'closed' then return end
   view.detach(session)
   motion.cancel(session)
+  search.reset(session)
   input.clear_temporary(session)
   session.transaction = nil
   session.dirty_check = nil

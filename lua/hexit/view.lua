@@ -1,5 +1,6 @@
 local layout = require('hexit.layout')
 local document = require('hexit.document')
+local search = require('hexit.search')
 
 local M = {}
 local ns = vim.api.nvim_create_namespace('HexitView')
@@ -99,6 +100,12 @@ local function heading(lay, session, width)
       and ('VISUAL (' .. selected .. ' B)') or 'NORMAL')
   local prefix = session.cursor.area == 'hex'
     and ('%s H%d'):format(mode, session.cursor.nibble) or (mode .. ' A')
+  if session.search and session.search.query then
+    local result = session.search
+    local ordinal = result.ordinal or (result.total == 0 and 0 or '?')
+    local total = result.total or '?'
+    prefix = prefix .. ('  %s/%s%s  '):format(ordinal, total, result.pending and ' searching…' or '')
+  end
   for col = 0, lay.bpr - 1 do
     local byte = (lay.uppercase_hex and '%02X' or '%02x'):format(col)
     local screen = layout.cell(lay, col, 0, 'hex')
@@ -139,6 +146,9 @@ local function marks(session, lay, height)
       selection_stop = math.min(size, math.ceil(selection_stop / lay.bpr) * lay.bpr)
     end
   end
+  local matches = search.visible_matches(session, session.top_row * lay.bpr,
+    math.min(size, (session.top_row + height) * lay.bpr))
+  local match_index = 1
   for screen_row = 0, height - 1 do
     local offset = (session.top_row + screen_row) * lay.bpr
     local count = math.min(lay.bpr, size - offset)
@@ -154,6 +164,16 @@ local function marks(session, lay, height)
         local ascii = lay.show_ascii and layout.cell(lay, col, 0, 'ascii')
         if ascii then mark(buf, row, ascii, ascii + 1, 'HexAscii', 10) end
         while dirty[dirty_idx] and byte >= dirty[dirty_idx][2] do dirty_idx = dirty_idx + 1 end
+        while matches[match_index] and byte >= matches[match_index].stop do
+          match_index = match_index + 1
+        end
+        local match = matches[match_index]
+        if match and byte >= match.start then
+          local group = match.current and 'HexSearchCurrent' or 'HexSearch'
+          local priority = match.current and 40 or 30
+          mark(buf, row, hex, hex + 2, group, priority)
+          if ascii then mark(buf, row, ascii, ascii + 1, group, priority) end
+        end
         if dirty[dirty_idx] and byte >= dirty[dirty_idx][1] then
           mark(buf, row, hex, hex + 2, 'HexModified', 20)
           if ascii then mark(buf, row, ascii, ascii + 1, 'HexModified', 20) end

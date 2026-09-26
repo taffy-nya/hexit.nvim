@@ -1,5 +1,6 @@
 local document = require('hexit.document')
 local view = require('hexit.view')
+local search = require('hexit.search')
 
 local M = {}
 local register = document.empty()
@@ -11,6 +12,7 @@ end
 
 local function changed(session)
   session.revision = session.revision + 1
+  search.on_edit(session)
   session.on_change(session, 'edit')
 end
 
@@ -369,6 +371,7 @@ function M.history(session, redo, count)
     changed_any = true
   end
   if changed_any then
+    search.on_edit(session)
     M.refresh_dirty(session)
     view.render(session)
   end

@@ -1,12 +1,14 @@
 local motion = require('hexit.motion')
 local view = require('hexit.view')
 local actions = require('hexit.actions')
+local search = require('hexit.search')
 
 local M = {}
 local defaults = {
   h = 'Left', l = 'Right', k = 'Up', j = 'Down', w = 'WordNext', b = 'WordPrev', e = 'WordEnd',
   G = 'Last', ['$'] = 'RowEnd', g = 'GPrefix', v = 'Visual', V = 'VisualLine',
   r = 'Replace', R = 'ReplaceMode', y = 'Yank', p = 'PasteAfter', P = 'PasteBefore', u = 'Undo',
+  ['/'] = 'SearchForward', ['?'] = 'SearchBackward', n = 'SearchNext', N = 'SearchPrev',
 }
 local specials = {
   ['<Left>'] = 'Left', ['<Right>'] = 'Right', ['<Up>'] = 'Up', ['<Down>'] = 'Down',
@@ -22,11 +24,33 @@ local names = {
   Escape = true, GPrefix = true, WheelUp = true, WheelDown = true, Unsupported = true,
   Visual = true, VisualLine = true, Replace = true, ReplaceMode = true, Yank = true,
   PasteAfter = true, PasteBefore = true, Undo = true, Redo = true,
+  SearchForward = true, SearchBackward = true, SearchNext = true, SearchPrev = true,
 }
 for digit = 0, 9 do names['Digit' .. digit] = true end
 
 local function message(text)
   vim.notify('hexit: ' .. text, vim.log.levels.WARN)
+end
+
+local function prompt_search(session, direction, count)
+  local kind = session.cursor.area
+  session.input.search_prompt = (session.input.search_prompt or 0) + 1
+  local request = session.input.search_prompt
+  vim.ui.input({ prompt = kind == 'hex' and 'Hex search >' or 'ASCII search >' }, function(text)
+    if session.input.search_prompt ~= request or text == nil or session.phase == 'closed' then return end
+    if session.phase ~= 'ready' and session.phase ~= 'saving' then return end
+    if text == '' then
+      if not session.search or not session.search.query then
+        message('no previous search')
+        return
+      end
+      search.start(session, session.search.query, direction, count)
+      return
+    end
+    local query, err = search.parse(kind, text, session.options)
+    if not query then message(err); return end
+    search.start(session, query, direction, count)
+  end)
 end
 local function clear_pending(state)
   state.count, state.prefix, state.overflow = nil, nil, nil
@@ -168,6 +192,8 @@ local function dispatch(session, action, key)
   end
   if action == 'Escape' then
     clear_pending(state)
+    state.search_prompt = (state.search_prompt or 0) + 1
+    search.cancel(session)
     motion.cancel(session)
     actions.escape(session)
     return
@@ -240,6 +266,15 @@ local function dispatch(session, action, key)
     if not ok then message(err) end
   elseif action == 'Undo' or action == 'Redo' then
     actions.history(session, action == 'Redo', count)
+  elseif action == 'SearchForward' or action == 'SearchBackward' then
+    prompt_search(session, action == 'SearchForward' and 1 or -1, count)
+  elseif action == 'SearchNext' or action == 'SearchPrev' then
+    if not session.search or not session.search.query then
+      message('no previous search')
+    else
+      search.next(session, action == 'SearchNext' and session.search.direction
+        or -session.search.direction, count)
+    end
   else
     motion.cancel(session)
     motion.move(session, action, count, has_count, session.owner_height, function()
@@ -305,6 +340,7 @@ function M.attach(session)
     group = session.augroup, buffer = buf,
     callback = function()
       clear_pending(session.input)
+      session.input.search_prompt = (session.input.search_prompt or 0) + 1
       motion.cancel(session)
       if session.input.replace then
         clear_temporary(session)

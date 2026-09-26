@@ -9,9 +9,9 @@ viewport, not a whole-file text conversion. Use |:Hex| to open a file. Source
 files changed by another process are NOT detected. Do not edit the file
 elsewhere while using Hexit: |:write| replaces the source snapshot.
 
-Search, Insert, Delete, read-only mode and system clipboard paste are not
-available in this checkout. The target is the first-stage implementation;
-search follows in phase4.
+Insert, Delete, read-only mode and system clipboard paste are not available
+in this checkout. Search supports exact binary Bytes and printable ASCII,
+not wildcard or regular-expression patterns.
 
 =============================================================================
 COMMANDS                                                        *hexit-commands*
@@ -23,6 +23,10 @@ COMMANDS                                                        *hexit-commands*
                          Invalid/out-of-file offsets are errors.
 :HexBytesPerRow {width}  Select 8, 16, 32 or auto in this buffer; preserve
                          the logical Byte and recompute linewise selection.
+:HexSearch {hex|ascii} {pattern}
+                         Search forward for exact Bytes or ASCII text.
+                         The pattern after the kind preserves ASCII spaces;
+                         see |hexit-search|.
 :HexCopyAs [format] [register]
                          Encode current Byte or Visual range as text. Default
                          format is `hex`; default register is `+`. Registers
@@ -48,8 +52,8 @@ Optional before opening sessions: >lua
     show_ascii = true,
     show_offset = true,
     default_copy_format = 'hex',
-    search_ignorecase = nil,  -- reserved for phase4 search
-    search_smartcase = nil,
+    search_ignorecase = nil,  -- nil reads vim.o.ignorecase at query start
+    search_smartcase = nil,   -- nil reads vim.o.smartcase at query start
     mappings = true,
   })
 <
@@ -80,6 +84,39 @@ Tab                Switch Hex/ASCII at same offset; returning Hex chooses high
                    nibble. Hidden ASCII cannot be entered.
 Mouse              Click a Byte cell to move; wheel scrolls three rows.
 Ctrl-e/y           Blocked to keep title at the top.
+
+=============================================================================
+SEARCH                                                          *hexit-search*
+
+/ / ?              Prompt for a forward/backward query in the current Hex
+                   or ASCII area (`Hex search >` / `ASCII search >`). The
+                   actual Neovim regex search is not used. Empty input
+                   repeats the last query; cancelling retains it.
+n / N              Next match in the query's original direction / opposite
+                   direction. N does not change the original direction.
+                   Counts select that many matches; traversal wraps once.
+                   One match may wrap back to itself. Esc cancels pending
+                   navigation without clearing the last query.
+
+Hex patterns accept compact pairs (`89504E47`) or pairs separated by
+whitespace (`89 50 4E 47`, `0x89 0x50 0x4E 0x47`). Odd digits, wildcards,
+commas and regex operators are rejected. ASCII patterns are literal
+printable 0x20–0x7E characters, including spaces: `.` and `*` are Bytes,
+not regex operators. Use Hex for 00 or non-ASCII Bytes. Hex searches ignore
+case settings; ASCII searches use `search_ignorecase` and `search_smartcase`
+or the corresponding Neovim options captured when the query starts. With
+ignorecase and smartcase enabled, an ASCII uppercase query stays sensitive;
+otherwise folding applies only to ASCII A–Z. Changing options later does
+not alter the existing query.
+
+The title shows the current match's ascending Byte-offset ordinal and total
+(`k/total`), `0/0` when empty, or `searching…` while counting. Both Hex and
+ASCII cells of visible matching Bytes are highlighted; the current match
+has a distinct highlight. Overlaps are valid. Search indexes per 64KiB
+block rather than retaining a per-match list, so a dense 50MiB search does
+not allocate millions of hit objects. Editing, undo and redo restart the
+query against the new binary snapshot; closing or starting another query
+cancels outdated work.
 
 =============================================================================
 SELECT AND EDIT                                             *hexit-editing*

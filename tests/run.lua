@@ -10,6 +10,8 @@ local modules = {
   'tests.cases.format',
   'tests.cases.copy',
   'tests.cases.write',
+  'tests.cases.search',
+  'tests.cases.search_ui',
 }
 local failed, total = 0, 0
 
