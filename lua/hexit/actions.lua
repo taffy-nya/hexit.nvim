@@ -218,9 +218,9 @@ function M.replace(session, value, count)
     local byte = cur.area == 'hex' and tonumber(value, 16) or value:byte()
     if not byte then return false, 'expected a hex Byte' end
     M.begin(session)
-    M.apply(session, start, stop - start, fill_root(byte, stop - start))
     session.cursor.offset, session.cursor.nibble = start, 0
     session.mode, session.anchor = 'normal', nil
+    M.apply(session, start, stop - start, fill_root(byte, stop - start))
     M.commit(session)
     view.render(session)
     return true
@@ -350,8 +350,8 @@ function M.paste(session, after, count)
   local repeated = repeat_root(register, count)
   local start = session.root.size == 0 and 0 or session.cursor.offset + (after and 1 or 0)
   M.begin(session)
-  M.apply(session, start, 0, repeated)
   session.cursor.offset, session.cursor.nibble = start, 0
+  M.apply(session, start, 0, repeated)
   M.commit(session)
   view.render(session)
   return true

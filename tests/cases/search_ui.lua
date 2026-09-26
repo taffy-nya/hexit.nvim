@@ -133,4 +133,58 @@ return {
       H.eq(s.cursor.offset, 2)
     end,
   },
+  {
+    name = 'SEARCH paste uses final inserted-byte cursor for current ordinal',
+    run = function()
+      local s = open('aa')
+      vim.cmd('HexSearch ascii a')
+      completed(s)
+      vim.cmd('HexGoto 0')
+      keys('yp')
+      completed(s)
+      H.eq(document.read(s.root, 0, s.root.size), 'aaa')
+      H.eq(s.cursor.offset, 1)
+      H.eq(s.search.current, 1)
+      H.eq(s.search.ordinal, 2)
+      H.eq(s.search.total, 3)
+    end,
+  },
+  {
+    name = 'SEARCH Visual Fill uses selection-start cursor for current ordinal',
+    run = function()
+      local s = open('aaxa')
+      vim.cmd('HexSearch ascii a')
+      completed(s)
+      H.eq(s.cursor.offset, 1)
+      keys('vllr61')
+      completed(s)
+      H.eq(document.read(s.root, 0, s.root.size), 'aaaa')
+      H.eq(s.cursor.offset, 1)
+      H.eq(s.search.current, 1)
+      H.eq(s.search.ordinal, 2)
+      H.eq(s.search.total, 4)
+    end,
+  },
+  {
+    name = 'SEARCH Escape retains highlights when navigating to uncached viewport',
+    run = function()
+      local s = open(string.rep('x', 512) .. 'a')
+      vim.cmd('HexSearch ascii a')
+      completed(s)
+      vim.cmd('HexGoto 0')
+      assert(vim.wait(1000, function()
+        return s.search._visible_cache and s.search._visible_cache.start == 0
+      end, 10), 'first viewport was not scanned')
+      keys('<Esc>')
+      H.eq(s.search.total, 1)
+      vim.cmd('HexGoto 512')
+      local row = math.floor(512 / s.layout.bpr) - s.top_row + 1
+      local hex = layout.cell(s.layout, 512 % s.layout.bpr, 0, 'hex')
+      local ascii = layout.cell(s.layout, 512 % s.layout.bpr, 0, 'ascii')
+      assert(vim.wait(2000, function()
+        return has_mark(s, 'HexSearchCurrent', row, hex, hex + 2, 40)
+          and has_mark(s, 'HexSearchCurrent', row, ascii, ascii + 1, 40)
+      end, 10), 'Esc removed match highlights in the next viewport')
+    end,
+  },
 }

@@ -659,7 +659,7 @@ function M.cancel(session, discard)
   stop_state(state, true)
   state.pending = false
   state._request = nil
-  state._suspended = true
+  state._suspended = state.total == nil
   if state.total == nil then
     state.index = nil
     state.current, state.ordinal, state.wrapped = nil, nil, false
