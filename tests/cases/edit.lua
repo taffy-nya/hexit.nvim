@@ -66,6 +66,33 @@ return {
     end,
   },
   {
+    name = 'EDIT Replace ignores page and wheel navigation and restores Plug Escape',
+    run = function()
+      local original = string.rep('A', 1024)
+      local s = open(original)
+      vim.keymap.set('n', '<F6>', '<Plug>(Hexit-PageDown)', { buffer = s.bufnr, remap = true })
+      vim.keymap.set('n', '<F7>', '<Plug>(Hexit-Escape)', { buffer = s.bufnr, remap = true })
+      keys('RDE')
+      H.eq(s.cursor.offset, 1)
+      keys('<C-f>')
+      H.eq(s.cursor.offset, 1)
+      keys('<ScrollWheelDown>')
+      H.eq(s.cursor.offset, 1)
+      H.eq(s.top_row, 0)
+      keys('<C-b><ScrollWheelUp><C-e><C-y><F6>')
+      H.eq(s.cursor.offset, 1)
+      keys('AD<F7>')
+      H.eq(s.mode, 'normal')
+      H.eq(value(s), H.bytes(0xDE, 0xAD) .. string.rep('A', 1022))
+      H.eq(#s.undo, 1)
+      keys('u')
+      H.eq(value(s), original)
+      keys('r<C-f>')
+      H.eq(s.cursor.offset, 0)
+      H.eq(value(s), original)
+    end,
+  },
+  {
     name = 'EDIT ASCII Replace Mode writes spaces and digits but not UTF-8 bytes',
     run = function()
       local s = open('abcd')

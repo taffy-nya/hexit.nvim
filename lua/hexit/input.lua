@@ -35,7 +35,11 @@ end
 local function temp_keys()
   local keys = {}
   for code = 32, 126 do keys[#keys + 1] = string.char(code) end
-  for _, key in ipairs({ '<Esc>', '<BS>', '<Tab>', '<Left>', '<Right>', '<Up>', '<Down>', '<C-r>', '<C-u>', '<C-d>' }) do
+  for _, key in ipairs({
+    '<Esc>', '<BS>', '<Tab>', '<Left>', '<Right>', '<Up>', '<Down>',
+    '<C-r>', '<C-u>', '<C-d>', '<C-b>', '<C-f>', '<C-e>', '<C-y>',
+    '<ScrollWheelUp>', '<ScrollWheelDown>',
+  }) do
     keys[#keys + 1] = key
   end
   return keys
@@ -154,6 +158,14 @@ local function dispatch(session, action, key)
     return
   end
   local state = session.input
+  if state.replace then
+    if action == 'Escape' then
+      receive(session, '<Esc>')
+    else
+      message('finish replacement with Esc before navigating')
+    end
+    return
+  end
   if action == 'Escape' then
     clear_pending(state)
     motion.cancel(session)

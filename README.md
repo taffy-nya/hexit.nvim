@@ -29,6 +29,7 @@ Hex uses a temporary window-local `scrolloff=0` to keep the title visible. Leavi
 ## Select, edit, copy, save
 
 `v` selects whole Bytes between anchor and cursor; `V` selects complete display rows (the final row ends at EOF). The title shows the selection length. `Tab` retains the selection while switching areas; `Esc` exits. In Hex, `rF` replaces one nibble (a count replaces that many nibble positions with the same digit); in ASCII, `rA` replaces one Byte (a count repeats the printable character). With Visual active, `rFF` or ASCII `rA` fills the selection once and exits. An incomplete or invalid replacement never writes. `R` overwrites as you type, crossing Byte/row boundaries without growing the file; `Esc` commits all its edits as one undo step. At EOF, further characters are rejected. Hex input accepts digits 0–9/A–F; ASCII input accepts printable single-byte ASCII, including space. Insert and Delete are not available in this phase.
+During `R`, page keys and the mouse wheel do not navigate; press `Esc` before moving elsewhere.
 When the viewport is wide enough, the title keeps the full mode and Visual Byte count at its left edge; a long status may cover the first column-number labels, but never the data rows.
 In Hex `r`/`R`, `:` returns to the native command line (and commits an active `R` transaction). In ASCII `r`/`R`, `:` is a literal Byte; press `Esc` before `:` to issue a command.
 
