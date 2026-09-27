@@ -243,6 +243,8 @@ return {
     assert(marked(s, 'HexHeaderSelection', 0, layout.cell(lay, 1, 0, 'hex'), layout.cell(lay, 1, 0, 'hex') + 2))
     assert(not marked(s, 'HexHeaderSelection', 0, layout.cell(lay, 2, 0, 'hex'), layout.cell(lay, 2, 0, 'hex') + 2))
     assert(not marked(s, 'HexCursor', 2, layout.cell(lay, 0, 0, 'hex'), layout.cell(lay, 0, 0, 'hex') + 1))
+    assert(marked(s, 'HexCursorMatch', 2, layout.cell(lay, 0, 0, 'ascii'),
+      layout.cell(lay, 0, 0, 'ascii') + 1))
     assert(marked(s, 'HexOffsetSelection', 2, 0, lay.offset_width))
     assert_hex_only_header(s)
   end },
@@ -344,6 +346,8 @@ return {
   { name = 'UX real colorscheme change rebuilds Byte defaults and preserves later overrides', run = function()
     local original_ascii = vim.api.nvim_get_hl(0, { name = 'HexAscii' })
     local original_match = vim.api.nvim_get_hl(0, { name = 'HexCursorMatch' })
+    local original_modified = vim.api.nvim_get_hl(0, { name = 'HexModified' })
+    local original_background = vim.o.background
     local ok, err = xpcall(function()
       local s = open('AB')
       local lay = s.layout
@@ -355,21 +359,50 @@ return {
       H.eq(vim.api.nvim_get_hl(0, { name = 'HexHeader' }).link, 'LineNr')
       H.eq(vim.api.nvim_get_hl(0, { name = 'HexHeaderCurrent' }).link, 'CursorLineNr')
       H.eq(vim.api.nvim_get_hl(0, { name = 'HexAscii' }).link, 'Normal')
-      H.eq(vim.api.nvim_get_hl(0, { name = 'HexCursorMatch' }).link, 'Visual')
+      H.eq(vim.api.nvim_get_hl(0, { name = 'HexCursorMatch' }).link, 'MatchParen')
+      H.eq(vim.api.nvim_get_hl(0, { name = 'HexModified' }).link, 'DiffText')
       vim.cmd.colorscheme('default')
       H.eq(vim.api.nvim_get_hl(0, { name = 'HexAscii' }).link, 'Normal')
-      H.eq(vim.api.nvim_get_hl(0, { name = 'HexCursorMatch' }).link, 'Visual')
+      H.eq(vim.api.nvim_get_hl(0, { name = 'HexCursorMatch' }).link, 'MatchParen')
+      H.eq(vim.api.nvim_get_hl(0, { name = 'HexModified' }).link, 'DiffText')
+      vim.cmd.colorscheme('shine')
+      H.eq(vim.api.nvim_get_hl(0, { name = 'HexModified' }).link, 'DiffChange')
+      vim.cmd.colorscheme('default')
+      H.eq(vim.o.background, 'light')
+      H.eq(vim.api.nvim_get_hl(0, { name = 'HexModified' }).link, 'DiffChange')
+      vim.o.background = 'dark'
+      vim.cmd.colorscheme('default')
+      H.eq(vim.api.nvim_get_hl(0, { name = 'HexModified' }).link, 'DiffText')
       vim.api.nvim_set_hl(0, 'HexAscii', { fg = 0x123456 })
+      vim.api.nvim_set_hl(0, 'HexModified', { bg = 0x334455 })
       vim.api.nvim_exec_autocmds('ColorScheme', { pattern = 'default' })
       H.eq(vim.api.nvim_get_hl(0, { name = 'HexAscii' }).fg, 0x123456)
+      H.eq(vim.api.nvim_get_hl(0, { name = 'HexModified' }).bg, 0x334455)
+      keys('rF')
+      H.eq(vim.bo[s.bufnr].modified, true)
+      assert(marked(s, 'HexModified', 1, layout.cell(lay, 0, 0, 'hex'),
+        layout.cell(lay, 0, 0, 'hex') + 2))
+      assert(marked(s, 'HexModified', 1, layout.cell(lay, 0, 0, 'ascii'),
+        layout.cell(lay, 0, 0, 'ascii') + 1))
+      keys('u')
+      H.eq(vim.bo[s.bufnr].modified, false)
+      assert(not marked(s, 'HexModified', 1, layout.cell(lay, 0, 0, 'ascii'),
+        layout.cell(lay, 0, 0, 'ascii') + 1))
       keys('v')
       assert(marked(s, 'HexSelection', 1, layout.cell(lay, 0, 0, 'ascii'),
         layout.cell(lay, 0, 0, 'ascii') + 1))
-      assert(not marked(s, 'HexCursorMatch', 1, layout.cell(lay, 0, 0, 'ascii'),
+      assert(marked(s, 'HexCursorMatch', 1, layout.cell(lay, 0, 0, 'ascii'),
+        layout.cell(lay, 0, 0, 'ascii') + 1))
+      keys('<Tab>')
+      assert(marked(s, 'HexCursorMatch', 1, layout.cell(lay, 0, 0, 'hex'),
+        layout.cell(lay, 0, 0, 'hex') + 2))
+      assert(not marked(s, 'HexCursor', 1, layout.cell(lay, 0, 0, 'ascii'),
         layout.cell(lay, 0, 0, 'ascii') + 1))
     end, debug.traceback)
+    vim.o.background = original_background
     vim.api.nvim_set_hl(0, 'HexAscii', original_ascii)
     vim.api.nvim_set_hl(0, 'HexCursorMatch', original_match)
+    vim.api.nvim_set_hl(0, 'HexModified', original_modified)
     if not ok then error(err) end
   end },
   { name = 'UX title lifecycle never changes window statusline, winbar or laststatus', run = function()

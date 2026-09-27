@@ -148,10 +148,11 @@ local function marks(session, lay, height)
   end
   for col = 0, lay.bpr - 1 do
     local hex = layout.cell(lay, col, 0, 'hex')
-    mark(buf, 0, hex, hex + 2, 'HexHeader', 10)
-    local group = selection_start and selected_columns[col] and 'HexHeaderSelection'
+    local selected = selection_start and selected_columns[col]
+    if not selected then mark(buf, 0, hex, hex + 2, 'HexHeader', 10) end
+    local group = selected and 'HexHeaderSelection'
       or not visual and size > 0 and session.cursor.offset % lay.bpr == col and 'HexHeaderCurrent'
-    if group then mark(buf, 0, hex, hex + 2, group, group == 'HexHeaderSelection' and 50 or 60) end
+    if group then mark(buf, 0, hex, hex + 2, group, selected and 50 or 60) end
   end
   local title = status.header(status.project(session))
   vim.api.nvim_buf_set_extmark(buf, ns, 0, 0, {
@@ -170,9 +171,10 @@ local function marks(session, lay, height)
     local count = math.min(lay.bpr, size - offset)
     if count > 0 then
       local row = screen_row + 1
-      if lay.show_offset then mark(buf, row, 0, lay.offset_width, 'HexOffset', 10) end
       if lay.show_offset then
-        if selection_start and offset < selection_stop and offset + count > selection_start then
+        local selected = selection_start and offset < selection_stop and offset + count > selection_start
+        if not selected then mark(buf, row, 0, lay.offset_width, 'HexOffset', 10) end
+        if selected then
           mark(buf, row, 0, lay.offset_width, 'HexOffsetSelection', 50)
         elseif not visual and session.cursor.offset >= offset and session.cursor.offset < offset + count then
           mark(buf, row, 0, lay.offset_width, 'HexOffsetCurrent', 60)
@@ -205,12 +207,14 @@ local function marks(session, lay, height)
           mark(buf, row, hex, hex + 2, 'HexSelection', 50)
           if ascii then mark(buf, row, ascii, ascii + 1, 'HexSelection', 50) end
         end
-        if not visual and byte == session.cursor.offset then
+        if byte == session.cursor.offset then
           if session.cursor.area == 'hex' then
-            mark(buf, row, hex + session.cursor.nibble, hex + session.cursor.nibble + 1, 'HexCursor', 70)
+            if not visual then
+              mark(buf, row, hex + session.cursor.nibble, hex + session.cursor.nibble + 1, 'HexCursor', 70)
+            end
             if ascii then mark(buf, row, ascii, ascii + 1, 'HexCursorMatch', 60) end
           else
-            mark(buf, row, ascii, ascii + 1, 'HexCursor', 70)
+            if not visual then mark(buf, row, ascii, ascii + 1, 'HexCursor', 70) end
             mark(buf, row, hex, hex + 2, 'HexCursorMatch', 60)
           end
         end

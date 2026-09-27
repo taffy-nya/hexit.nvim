@@ -151,7 +151,8 @@ return {
         end
       end
       H.eq(selected, 4)
-      H.eq(active or partner, false)
+      H.eq(active, false)
+      H.eq(partner, true)
       keys('rFF')
       H.eq(value(s), H.bytes(255, 255, 3, 4, 5, 6, 7, 8, 9))
       local dirty = 0

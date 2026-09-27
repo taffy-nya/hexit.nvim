@@ -119,28 +119,38 @@ marker.
 Default highlight links use Neovim's active colorscheme; set any Hexit group
 directly to override its default. Groups still defined when ColorScheme fires
 are not overwritten. A colorscheme that clears custom groups requires user
-overrides to be reapplied from a ColorScheme autocmd:
+overrides to be reapplied from a ColorScheme autocmd. Defaults:
 
   HexOffset -> LineNr              HexOffsetCurrent -> CursorLineNr
   HexOffsetSelection -> Visual     HexHeader -> LineNr
   HexHeaderCurrent -> CursorLineNr HexHeaderSelection -> Visual
   HexHeaderMode -> ModeMsg         HexHeaderStatus -> Normal
   HexByte -> Normal                HexAscii -> Normal
-  HexCursor -> Cursor              HexCursorMatch -> Visual
-  HexModified -> DiffChange        HexSearch -> Search
+  HexCursor -> Cursor              HexCursorMatch -> MatchParen
+  HexModified -> DiffText (dark) / DiffChange (light)
+  HexSearch -> Search
   HexSearchCurrent -> CurSearch    HexSelection -> Visual
+
+The dark/light dirty link is chosen at plugin load or ColorScheme rebuilding.
+Changing only 'background' can retain the existing default link; reapply
+your colorscheme to select the other default. Explicit HexModified overrides
+are never replaced by that default.
 
 Hex and ASCII data are both neutral by default; the column ruler and offsets
 use line-number colors. In Normal/Replace, the current Hex column and offset
-share CursorLineNr emphasis. HexCursor marks the active nibble or ASCII cell,
-while HexCursorMatch marks the whole Byte in the other area; it has Visual's
-default color but does not appear during Visual selection. In Visual/Visual
-Line, selected Hex columns, actual row offsets and both Byte cells use Visual
-with no separate current-Byte/column/offset color. Current/other search hits
-use CurSearch/Search, and dirty Bytes use DiffChange. More prominent marks can
-cover dirty colors without changing the modified state. Only real Byte cells
-are highlighted; the title's mode and right status replace colors beneath
-them, with the right status winning overlaps.
+share CursorLineNr emphasis. HexCursor marks the active nibble or ASCII cell
+outside Visual; HexCursorMatch marks the whole Byte in the other area using
+MatchParen's emphasis in both Normal/Replace and Visual. The opposite-area
+mark takes priority over Visual selection on the current Byte only. In
+Visual/Visual Line, selected Hex columns and actual row offsets use only
+Visual, not an overlapping LineNr foreground that could match its background.
+Selected Byte cells otherwise use Visual, without a separate active-cell or
+current column/offset highlight. Current/other search hits use CurSearch/Search;
+dirty Bytes use DiffText on dark backgrounds and DiffChange on light
+backgrounds. More prominent marks can cover dirty colors without changing
+the modified state. Only real Byte cells are highlighted; the title's mode
+and right status replace colors beneath them, with the right status winning
+overlaps.
 
 Public Lua interface: >lua
   local s = require('hexit').get_status(bufnr)

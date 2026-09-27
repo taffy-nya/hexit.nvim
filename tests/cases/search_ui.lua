@@ -107,7 +107,7 @@ return {
       keys('vll')
       H.eq(s.cursor.offset, 16)
       assert(has_mark(s, 'HexSelection', 1, h15, h15 + 2, 50))
-      assert(not has_mark(s, 'HexCursorMatch', 2, a0, a0 + 1, 60))
+      assert(has_mark(s, 'HexCursorMatch', 2, a0, a0 + 1, 60))
       assert(not has_mark(s, 'HexCursor', 2, h0, h0 + 1, 70))
     end,
   },

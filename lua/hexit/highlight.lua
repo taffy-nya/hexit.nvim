@@ -5,13 +5,14 @@ local links = {
   HexHeader = 'LineNr', HexHeaderCurrent = 'CursorLineNr', HexHeaderSelection = 'Visual',
   HexHeaderMode = 'ModeMsg', HexHeaderStatus = 'Normal',
   HexByte = 'Normal', HexAscii = 'Normal',
-  HexCursor = 'Cursor', HexCursorMatch = 'Visual',
-  HexModified = 'DiffChange', HexSearch = 'Search',
+  HexCursor = 'Cursor', HexCursorMatch = 'MatchParen',
+  HexModified = 'DiffText', HexSearch = 'Search',
   HexSearchCurrent = 'CurSearch', HexSelection = 'Visual',
 }
 
 function M.apply()
   for name, target in pairs(links) do
+    if name == 'HexModified' and vim.o.background == 'light' then target = 'DiffChange' end
     vim.api.nvim_set_hl(0, name, { default = true, link = target })
   end
 end
