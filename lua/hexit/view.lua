@@ -58,7 +58,7 @@ vim.api.nvim_create_autocmd('WinClosed', {
 vim.api.nvim_create_autocmd('OptionSet', {
   group = transitions, pattern = 'scrolloff',
   callback = function()
-    if setting_options then return end
+    if setting_options or vim.v.option_type ~= 'local' then return end
     local win = vim.api.nvim_get_current_win()
     local saved = saved_windows[win]
     if not saved then return end
