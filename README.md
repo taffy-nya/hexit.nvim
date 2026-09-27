@@ -67,7 +67,7 @@ Every supported action has a stable buffer-local `<Plug>(Hexit-{Action})` mappin
 | `w` `b` `e` | Byte/word motion | `WordNext`, `WordPrev`, `WordEnd` |
 | `g` `g` | first Byte / counted display row | `GPrefix` then `First` |
 | `G` | last Byte / counted display row | `Last` |
-| `0` `$` | row start / row end | `Digit0` (start), `RowEnd` |
+| `0` `$` | row start / row end | `RowStart`, `RowEnd` (`0` is installed as `Digit0`, which means row start when no count precedes it) |
 | `<C-u>` `<C-d>` | half page | `HalfUp`, `HalfDown` |
 | `<C-b>` `<C-f>` | full page | `PageUp`, `PageDown` |
 | `<Tab>` | Hex/ASCII area | `SwitchArea` |
@@ -94,7 +94,7 @@ User mappings win where they exist: Hexit skips a default key when a mapping wit
 - Multiple windows showing one Hex buffer share a single cursor and viewport; per-window independent scrolling is not supported.
 - Copy As writes text out; system-clipboard Paste and Paste From Text belong to the second stage. `:w` only writes the whole document back to the source path (`:w!`, `:w other`, ranges, append, `:saveas` are refused).
 - Opening is a snapshot and saving overwrites the target from that snapshot: modify the source file in another process neither while Hexit is open nor before saving.
-- Undo history is unbounded and lives in Lua memory, so memory grows with the number of edits. Measured on Windows 10.0.26200/Neovim 0.12.5: after 10,000 single-Byte edits on a 50 MiB document the Lua heap reached ~100 MB and process RSS grew ~1.9 GB, most of it allocator retention rather than live Lua data.
+- Undo history is unbounded and lives in Lua memory, so memory grows with the number of edits. Measured on Windows 10.0.26200/Neovim 0.12.5: after 10,000 single-Byte edits on a 50 MiB document the Lua heap grew ~100 MB (about 173 MB total) and process RSS grew ~1.78 GB, most of it allocator retention rather than live Lua data.
 
 ## Search
 
@@ -127,6 +127,6 @@ nvim --headless -u tests/minimal_init.lua -i NONE "+helptags doc" +qa
 
 `tests/run.lua` covers the binary model and bounds, asynchronous I/O and write failure injection, layout/hit testing, navigation and counts, splits and option restoration, selection/editing/history, Copy As goldens, streaming search races, command error paths, session lifecycle, and the UX state machine. `tests/perf.lua` generates its own 50 MiB fixtures, enforces the plan thresholds locally, and asserts the deterministic parts (exact match totals, bounded viewport, block-based dense index) everywhere; `HEXIT_PERF_CI=1` makes wall-clock numbers report-only for shared runners and `HEXIT_PERF_OUT` selects the JSON path.
 
-Measured on Windows 10.0.26200 x64 / Neovim 0.12.5 with warm cache: 50 MiB open to ready 79 ms (threshold 2000 ms), navigation and single-nibble edits p95 16 ms / max 23 ms (50/100 ms), exact `DEADBEEF` count 234 ms and ASCII ignorecase count 1.3 s (15000 ms), 50 MiB of zeros indexed in 3.1 ms with 800 block counters and exact total 52,428,800, 1 MiB fill + undo/redo each under 4 ms (300 ms), and 10,000 single-Byte edits at p95 6 ms with the piece table staying at 51 pieces. The JSON report is written to `tmp/perf.json`.
+Measured on Windows 10.0.26200 x64 / Neovim 0.12.5 with warm cache; every scenario runs three times and the report keeps the median plus all samples (`runs_per_scenario`, `samples_*`). Response bounds are measured as the longest gap between two event-loop turns (a `vim.wait` predicate evaluates once per turn), which is why long scans must yield a real loop turn between 64 KiB slices. 50 MiB open to ready 76 ms (limit 2000 ms) with a 23 ms worst loop gap; navigation and single-nibble edits p95 16 ms / max 20 ms (50/100 ms); exact `DEADBEEF` count 232 ms and ASCII ignorecase count 1.48 s (15000 ms) with worst loop gaps 3.0 ms and 5.4 ms; 50 MiB of zeros: start response 3.0 ms, Esc/cancel 2.6 ms while the scan runs, exact total 52,428,800 from 800 block counters, full count 1.63 s, worst loop gap 6.0 ms and 1.6 MB of dense-match RSS (32 MiB budget); 1 MiB fill + undo/redo each under 3.4 ms (300 ms); 10,000 single-Byte edits at p95 8 ms with the piece table staying at 51 pieces; extra RSS after opening (child process vs empty process) 0.07 MB. Whole-file export is recorded separately: a 50 MiB Base64 copy produces 69,905,068 characters in 235 ms with +129 MB RSS (25 MB stable after the register is released) and one unavoidable ~200 ms step while the result text is assembled. The JSON report is written to `tmp/perf.json`.
 
 `.github/workflows/test.yml` runs the suite on `ubuntu-latest` and `windows-latest` against Neovim `v0.12.5` and the current `stable`, installs Neovim from the official release and fails if the detected version is below 0.12, and uploads the Linux performance JSON as an artifact. The workflow itself has not been executed here; the YAML was parsed locally.

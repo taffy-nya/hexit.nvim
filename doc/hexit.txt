@@ -12,7 +12,7 @@ files changed by another process are NOT detected. Do not edit the file
 elsewhere while using Hexit: |:write| replaces the source snapshot.
 
 Insert, Delete, read-only mode and system clipboard paste are not available
-in this checkout. Search supports exact binary Bytes and printable ASCII,
+in the first stage. Search supports exact binary Bytes and printable ASCII,
 not wildcard or regular-expression patterns. See |hexit-limits| for the full
 first-stage scope.
 
@@ -255,6 +255,7 @@ mapping. Default keys, when `mappings` is true, only forward to these names:
   G                             Last                         last Byte
   0                             Digit0 (no count)            row start
   $                             RowEnd                       row end
+  (no default key)              RowStart                     row start
   <C-u> <C-d>                   HalfUp HalfDown              half page
   <C-b> <C-f>                   PageUp PageDown              full page
   <Tab>                         SwitchArea                   Hex/ASCII area
@@ -270,6 +271,10 @@ mapping. Default keys, when `mappings` is true, only forward to these names:
   other printable ASCII         CharXX (Char41 is "A")      r/R data input
   wheel                         WheelUp WheelDown            scroll 3 rows
   <C-e> <C-y>                   Unsupported                  silent no-op
+
+`RowStart` has no default key of its own: `0` is installed as `Digit0` and
+means row start when no count precedes it, so map `RowStart` when an explicit
+row-start key is wanted.
 
 Counts and `gg` do not use timeout-dependent overlapping mappings: `g` is
 GPrefix and a second `g` completes First. A default key is skipped when the
@@ -408,7 +413,11 @@ PERFORMANCE                                               *hexit-performance*
 
 The binary snapshot is read asynchronously in 1 MiB chunks and the buffer
 only ever holds one title row plus one bounded viewport, so browsing cost does
-not grow with the file size. Searching keeps per-64KiB-block counts instead of
+not grow with the file size. Long-running work (search scans, dirty-state
+comparison and Copy As encoding) is sliced at 64 KiB or 8 ms and yields a real
+event-loop turn between slices, so timers, `:messages` polling and input stay
+responsive while a 50 MiB scan runs; assembling the final Copy As result text
+is one un-sliced step (a 50 MiB Base64 export builds ~70 MB in about 200 ms). Searching keeps per-64KiB-block counts instead of
 a per-hit list, which is why a 50 MiB file full of `00` reports 52,428,800
 matches without allocating a table per hit.
 
@@ -416,8 +425,9 @@ Editing history is a piece table: every edit stores only piece references, so
 an edit never copies the whole document, but each retained undo entry keeps
 its piece array. Measured on Windows 10.0.26200 x64 with Neovim 0.12.5 after
 10,000 single-Byte edits on a 50 MiB document: p95 edit latency 8 ms, the
-piece table stayed at 51 pieces, the Lua heap reached ~100 MB, and process
-RSS grew ~1.9 GB (mostly allocator retention, not live Lua data). Long editing
+piece table stayed at 51 pieces, the Lua heap grew ~100 MB (about 173 MB
+total), and process RSS grew ~1.78 GB (mostly allocator retention, not live
+Lua data). Long editing
 sessions on very large files should be split with `:write` and a fresh |:Hex|.
 
 =============================================================================

@@ -6,6 +6,14 @@ local M = {}
 local register = document.empty()
 local LIMIT = 9007199254740991
 
+-- Sliced work (dirty comparison, edit comparison, Copy As encoding) must yield a
+-- real event-loop turn between slices: a self-rescheduling vim.schedule chain
+-- drains in a single burst and starves libuv timers, so these loops yield
+-- through a zero-delay timer like hexit.search does.
+local function yield(callback)
+  vim.defer_fn(callback, 0)
+end
+
 local function cursor(session)
   return vim.deepcopy(session.cursor)
 end
@@ -56,10 +64,10 @@ function M.refresh_dirty(session)
       session.dirty_check = nil
       vim.bo[buf].modified = false
     else
-      vim.schedule(step)
+      yield(step)
     end
   end
-  vim.schedule(step)
+  yield(step)
 end
 
 function M.selection(session)
@@ -185,7 +193,7 @@ function M.commit(session)
       return
     end
     session.pending = 'comparing edit'
-    vim.schedule(function()
+    yield(function()
       if session.phase ~= 'closed' and session.revision == revision then compare() end
     end)
   end
@@ -401,13 +409,13 @@ function M.copy_as(session, name, target)
     local chunk = iterator()
     if chunk then
       encoder:push(chunk)
-      vim.schedule(step)
+      yield(step)
     else
       local ok, err = pcall(vim.fn.setreg, target, encoder:finish(), 'v')
       if not ok then vim.notify('hexit: Copy As failed: ' .. tostring(err), vim.log.levels.ERROR) end
     end
   end
-  vim.schedule(step)
+  yield(step)
 end
 
 function M.register() return register end

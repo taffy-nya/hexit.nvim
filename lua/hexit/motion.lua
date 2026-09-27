@@ -1,5 +1,11 @@
 local M = {}
 
+-- Cooperative long-word scanning resumes through a zero-delay timer so the
+-- event loop (timers, polling) is never starved by a self-rescheduling chain.
+local function yield(callback)
+  vim.defer_fn(callback, 0)
+end
+
 local pending = setmetatable({}, { __mode = 'k' })
 local MAX_SCAN_BYTES = 64 * 1024
 local SCAN_BUDGET_NS = 8 * 1000 * 1000
@@ -296,7 +302,7 @@ local function finish_pending(session, token)
     error(cursor, 0)
   end
   if coroutine.status(token.co) ~= 'dead' then
-    vim.schedule(function() finish_pending(session, token) end)
+    yield(function() finish_pending(session, token) end)
     return
   end
 
@@ -406,7 +412,7 @@ function M.move(session, action, count, has_count, height, done)
           callback()
         end
       else
-        vim.schedule(function() finish_pending(session, token) end)
+        yield(function() finish_pending(session, token) end)
       end
       return
     end

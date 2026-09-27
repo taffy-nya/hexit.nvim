@@ -9,8 +9,12 @@ local max = math.max
 local floor = math.floor
 local byte = string.byte
 
+-- Cooperative steps must return to the event loop between slices: a
+-- self-rescheduling vim.schedule chain drains in a single burst and starves
+-- libuv timers, so a 50 MiB scan would block timers and loop polling for its
+-- whole duration. A zero-delay timer yields a real loop turn instead.
 local function schedule(callback)
-  vim.schedule(callback)
+  vim.defer_fn(callback, 0)
 end
 
 local function now()
