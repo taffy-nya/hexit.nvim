@@ -13,7 +13,20 @@ elsewhere while using Hexit: |:write| replaces the source snapshot.
 
 Insert, Delete, read-only mode and system clipboard paste are not available
 in this checkout. Search supports exact binary Bytes and printable ASCII,
-not wildcard or regular-expression patterns.
+not wildcard or regular-expression patterns. See |hexit-limits| for the full
+first-stage scope.
+
+=============================================================================
+INSTALLATION                                                  *hexit-install*
+
+Hexit has no runtime dependency and needs no build step. Put this repository
+in 'runtimepath': >
+
+  vim.opt.runtimepath:prepend('/path/to/hexit.nvim')
+<
+Neovim 0.12 or newer is required. On an older Neovim the plugin reports an
+explicit error and registers no commands. Loading Hexit never opens a file;
+use |:Hex|. `:helptags doc` from the repository root installs these help tags.
 
 =============================================================================
 COMMANDS                                                        *hexit-commands*
@@ -229,6 +242,43 @@ not replay or reinterpret user mappings. Non-core unsupported operations
 display one native single-line warning, not a notification popup.
 
 =============================================================================
+PLUG MAPPINGS                                                    *hexit-plug*
+
+Each supported action has a stable buffer-local `<Plug>(Hexit-{Action})`
+mapping. Default keys, when `mappings` is true, only forward to these names:
+
+  Key(s)                        `<Plug>` action              Motion/effect ~
+  h l k j, <Left> <Right>       Left Right Up Down           nibble/Byte, row
+  <Up> <Down>
+  w b e                         WordNext WordPrev WordEnd    Byte/word motion
+  g g                           GPrefix then First           first Byte
+  G                             Last                         last Byte
+  0                             Digit0 (no count)            row start
+  $                             RowEnd                       row end
+  <C-u> <C-d>                   HalfUp HalfDown              half page
+  <C-b> <C-f>                   PageUp PageDown              full page
+  <Tab>                         SwitchArea                   Hex/ASCII area
+  v V                           Visual VisualLine            Visual modes
+  r R                           Replace ReplaceMode          replace, R mode
+  y                             Yank                         binary register
+  p P                           PasteAfter PasteBefore       insert register
+  u <C-r>                       Undo Redo                    history
+  / ?                           SearchForward SearchBackward search prompt
+  n N                           SearchNext SearchPrev        match navigation
+  <Esc>                         Escape                       clear/hide
+  0-9                           Digit0 ... Digit9            counts
+  other printable ASCII         CharXX (Char41 is "A")      r/R data input
+  wheel                         WheelUp WheelDown            scroll 3 rows
+  <C-e> <C-y>                   Unsupported                  silent no-op
+
+Counts and `gg` do not use timeout-dependent overlapping mappings: `g` is
+GPrefix and a second `g` completes First. A default key is skipped when the
+buffer already maps it, so user mappings win; a `FileType hexit` buffer-local
+mapping to a `<Plug>(Hexit-...)` name replaces the default. With
+`mappings=false` only the `<Plug>` names are installed; `r`/`R` still install
+their temporary data keys and restore the user's mappings on exit.
+
+=============================================================================
 SEARCH                                                          *hexit-search*
 
 / / ?              Enter the *real* native / or ? command line. The kind
@@ -317,6 +367,58 @@ Bytes and a shifted suffix can be highlighted. Full-content equality (including
 manual restoration) clears 'modified' asynchronously; while comparing, the
 buffer remains conservatively modified. History is not limited and may consume
 more memory as edits accumulate.
+
+=============================================================================
+LIMITATIONS                                                    *hexit-limits*
+
+This checkout implements the first-stage scope only:
+- No Insert mode (`i`, `a`, `I`, `A`), no delete (`x`, `d`, Visual `p`), and
+  no Visual delete.
+- No read-only browsing mode, no external-change detection, reload or
+  force-write UI, no expression offsets, no named-register integration, no
+  automatic binary-file detection, and no ordinary-text/Hex round trip.
+  Adjusting 'fileformat', 'fileencoding' or reloading the source in another
+  process is outside Hexit.
+- Unsupported edit and operator keys report one native message and never
+  change the rendered buffer.
+- Search handles exact Byte sequences and printable ASCII literals only: no
+  wildcards, no regular expressions, no multi-encoding, no search/replace.
+  Ignorecase folds ASCII `A`-`Z` only.
+- `H`, `M`, `L`, `zt`, `zz`, `zb`, `f`, `F`, `t`, `T`, `;` and `,` are not
+  implemented.
+- Several windows showing one Hex buffer share one logical cursor and
+  viewport; independent per-window scrolling is not supported. Different
+  files use independent sessions.
+- Copy As only writes text out. System-clipboard Paste and Paste From Text
+  belong to a later stage.
+- `:write` writes the whole document back to the source path only; `:w!`,
+  `:w other`, ranges, append and `:saveas` are refused.
+
+Opening a file is a snapshot and `:write` replaces the target with that
+snapshot. External modifications are NOT detected, so do not modify the
+source file in another process while Hexit is open, and be aware that a
+successful `:write` overwrites whatever the file contains at that moment.
+Do not run `:write` concurrently from two Hexit sessions on one path.
+
+Undo history is kept in memory without a limit, so memory grows with the
+number of edits; see |hexit-performance|.
+
+=============================================================================
+PERFORMANCE                                               *hexit-performance*
+
+The binary snapshot is read asynchronously in 1 MiB chunks and the buffer
+only ever holds one title row plus one bounded viewport, so browsing cost does
+not grow with the file size. Searching keeps per-64KiB-block counts instead of
+a per-hit list, which is why a 50 MiB file full of `00` reports 52,428,800
+matches without allocating a table per hit.
+
+Editing history is a piece table: every edit stores only piece references, so
+an edit never copies the whole document, but each retained undo entry keeps
+its piece array. Measured on Windows 10.0.26200 x64 with Neovim 0.12.5 after
+10,000 single-Byte edits on a 50 MiB document: p95 edit latency 8 ms, the
+piece table stayed at 51 pieces, the Lua heap reached ~100 MB, and process
+RSS grew ~1.9 GB (mostly allocator retention, not live Lua data). Long editing
+sessions on very large files should be split with `:write` and a fresh |:Hex|.
 
 =============================================================================
 COPY AS                                                      *hexit-copy-as*

@@ -1,0 +1,67 @@
+name: test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / Neovim ${{ matrix.version }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        version: ['v0.12.5', 'stable']
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Neovim ${{ matrix.version }}
+        shell: bash
+        env:
+          NVIM_VERSION: ${{ matrix.version }}
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            curl -fsSL -o nvim.zip "https://github.com/neovim/neovim/releases/download/${NVIM_VERSION}/nvim-win64.zip"
+            powershell -NoProfile -Command "Expand-Archive -Path nvim.zip -DestinationPath . -Force"
+            echo "$GITHUB_WORKSPACE/nvim-win64/bin" >> "$GITHUB_PATH"
+          else
+            curl -fsSL -o nvim.tar.gz "https://github.com/neovim/neovim/releases/download/${NVIM_VERSION}/nvim-linux-x86_64.tar.gz"
+            tar -xzf nvim.tar.gz
+            echo "$GITHUB_WORKSPACE/nvim-linux-x86_64/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Record and verify the Neovim version
+        shell: bash
+        run: |
+          set -euo pipefail
+          nvim --version | head -n 1
+          detected=$(nvim --headless -u NONE -i NONE -c "lua io.stdout:write(vim.version().major .. ' ' .. vim.version().minor .. ' ' .. vim.version().patch)" -c qa | tr -d '\r')
+          echo "detected Neovim $detected"
+          major=$(echo "$detected" | cut -d' ' -f1)
+          minor=$(echo "$detected" | cut -d' ' -f2)
+          if [ "$major" -eq 0 ] && [ "$minor" -lt 12 ]; then
+            echo "Neovim >= 0.12 is required, got $detected"
+            exit 1
+          fi
+
+      - name: Run test suite
+        run: nvim --headless -u tests/minimal_init.lua -i NONE -l tests/run.lua
+
+      - name: Performance report
+        if: matrix.os == 'ubuntu-latest' && matrix.version == 'v0.12.5'
+        env:
+          HEXIT_PERF_CI: '1'
+          HEXIT_PERF_OUT: tmp/perf.json
+        run: nvim --headless -u tests/minimal_init.lua -i NONE -l tests/perf.lua
+
+      - name: Upload performance report
+        if: always() && matrix.os == 'ubuntu-latest' && matrix.version == 'v0.12.5'
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-report-${{ matrix.version }}
+          path: tmp/perf.json
+          if-no-files-found: warn

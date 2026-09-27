@@ -3,6 +3,7 @@ local modules = {
   'tests.cases.doc',
   'tests.cases.io',
   'tests.cases.entry',
+  'tests.cases.commands',
   'tests.cases.layout',
   'tests.cases.motion',
   'tests.cases.ux_view',

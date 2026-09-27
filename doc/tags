@@ -3,7 +3,11 @@ hexit-commands	hexit.txt	/*hexit-commands*
 hexit-configuration	hexit.txt	/*hexit-configuration*
 hexit-copy-as	hexit.txt	/*hexit-copy-as*
 hexit-editing	hexit.txt	/*hexit-editing*
+hexit-install	hexit.txt	/*hexit-install*
 hexit-keys	hexit.txt	/*hexit-keys*
+hexit-limits	hexit.txt	/*hexit-limits*
+hexit-performance	hexit.txt	/*hexit-performance*
+hexit-plug	hexit.txt	/*hexit-plug*
 hexit-search	hexit.txt	/*hexit-search*
 hexit-title	hexit.txt	/*hexit-title*
 hexit.txt	hexit.txt	/*hexit.txt*
