@@ -341,6 +341,37 @@ return {
       end
     end
   end },
+  { name = 'UX real colorscheme change rebuilds Byte defaults and preserves later overrides', run = function()
+    local original_ascii = vim.api.nvim_get_hl(0, { name = 'HexAscii' })
+    local original_match = vim.api.nvim_get_hl(0, { name = 'HexCursorMatch' })
+    local ok, err = xpcall(function()
+      local s = open('AB')
+      local lay = s.layout
+      assert(marked(s, 'HexAscii', 1, layout.cell(lay, 0, 0, 'ascii'),
+        layout.cell(lay, 0, 0, 'ascii') + 1))
+      assert(marked(s, 'HexCursorMatch', 1, layout.cell(lay, 0, 0, 'ascii'),
+        layout.cell(lay, 0, 0, 'ascii') + 1))
+      H.eq(vim.api.nvim_get_hl(0, { name = 'HexOffset' }).link, 'LineNr')
+      H.eq(vim.api.nvim_get_hl(0, { name = 'HexHeader' }).link, 'LineNr')
+      H.eq(vim.api.nvim_get_hl(0, { name = 'HexHeaderCurrent' }).link, 'CursorLineNr')
+      H.eq(vim.api.nvim_get_hl(0, { name = 'HexAscii' }).link, 'Normal')
+      H.eq(vim.api.nvim_get_hl(0, { name = 'HexCursorMatch' }).link, 'Visual')
+      vim.cmd.colorscheme('default')
+      H.eq(vim.api.nvim_get_hl(0, { name = 'HexAscii' }).link, 'Normal')
+      H.eq(vim.api.nvim_get_hl(0, { name = 'HexCursorMatch' }).link, 'Visual')
+      vim.api.nvim_set_hl(0, 'HexAscii', { fg = 0x123456 })
+      vim.api.nvim_exec_autocmds('ColorScheme', { pattern = 'default' })
+      H.eq(vim.api.nvim_get_hl(0, { name = 'HexAscii' }).fg, 0x123456)
+      keys('v')
+      assert(marked(s, 'HexSelection', 1, layout.cell(lay, 0, 0, 'ascii'),
+        layout.cell(lay, 0, 0, 'ascii') + 1))
+      assert(not marked(s, 'HexCursorMatch', 1, layout.cell(lay, 0, 0, 'ascii'),
+        layout.cell(lay, 0, 0, 'ascii') + 1))
+    end, debug.traceback)
+    vim.api.nvim_set_hl(0, 'HexAscii', original_ascii)
+    vim.api.nvim_set_hl(0, 'HexCursorMatch', original_match)
+    if not ok then error(err) end
+  end },
   { name = 'UX title lifecycle never changes window statusline, winbar or laststatus', run = function()
     local first_win = vim.api.nvim_get_current_win()
     local original_global_statusline = vim.api.nvim_get_option_value('statusline', { scope = 'global' })

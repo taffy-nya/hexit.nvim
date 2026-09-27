@@ -116,17 +116,31 @@ and a successfully saved buffer shows `[-]`. In a lualine filename component,
 and `[-]` is not a saved-state marker. The title never shows a dirty/save
 marker.
 
-Default highlight links (all default links, so themes may override them):
-  HexHeader -> Comment             HexHeaderCurrent -> IncSearch
-  HexHeaderSelection -> Visual     HexOffsetCurrent -> CursorLineNr
-  HexOffsetSelection -> Visual     HexHeaderMode -> ModeMsg
-  HexHeaderStatus -> Normal
-Existing HexOffset -> Comment and data-group links remain unchanged. In
-Normal/Replace, the complete current Hex column number and current row offset
-are highlighted; HexCursor/HexCursorMatch continue to mark the active nibble
-and corresponding Byte. In Visual/Visual Line, the selected Hex column set
-and actual selected row offsets are highlighted, with no separate current
-Byte/column/offset color. The data selection behavior is unchanged.
+Default highlight links use Neovim's active colorscheme; set any Hexit group
+directly to override its default. Groups still defined when ColorScheme fires
+are not overwritten. A colorscheme that clears custom groups requires user
+overrides to be reapplied from a ColorScheme autocmd:
+
+  HexOffset -> LineNr              HexOffsetCurrent -> CursorLineNr
+  HexOffsetSelection -> Visual     HexHeader -> LineNr
+  HexHeaderCurrent -> CursorLineNr HexHeaderSelection -> Visual
+  HexHeaderMode -> ModeMsg         HexHeaderStatus -> Normal
+  HexByte -> Normal                HexAscii -> Normal
+  HexCursor -> Cursor              HexCursorMatch -> Visual
+  HexModified -> DiffChange        HexSearch -> Search
+  HexSearchCurrent -> CurSearch    HexSelection -> Visual
+
+Hex and ASCII data are both neutral by default; the column ruler and offsets
+use line-number colors. In Normal/Replace, the current Hex column and offset
+share CursorLineNr emphasis. HexCursor marks the active nibble or ASCII cell,
+while HexCursorMatch marks the whole Byte in the other area; it has Visual's
+default color but does not appear during Visual selection. In Visual/Visual
+Line, selected Hex columns, actual row offsets and both Byte cells use Visual
+with no separate current-Byte/column/offset color. Current/other search hits
+use CurSearch/Search, and dirty Bytes use DiffChange. More prominent marks can
+cover dirty colors without changing the modified state. Only real Byte cells
+are highlighted; the title's mode and right status replace colors beneath
+them, with the right status winning overlaps.
 
 Public Lua interface: >lua
   local s = require('hexit').get_status(bufnr)

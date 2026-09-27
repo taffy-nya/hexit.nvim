@@ -1,11 +1,11 @@
 local M = {}
 
 local links = {
-  HexOffset = 'Comment', HexOffsetCurrent = 'CursorLineNr', HexOffsetSelection = 'Visual',
-  HexHeader = 'Comment', HexHeaderCurrent = 'IncSearch', HexHeaderSelection = 'Visual',
+  HexOffset = 'LineNr', HexOffsetCurrent = 'CursorLineNr', HexOffsetSelection = 'Visual',
+  HexHeader = 'LineNr', HexHeaderCurrent = 'CursorLineNr', HexHeaderSelection = 'Visual',
   HexHeaderMode = 'ModeMsg', HexHeaderStatus = 'Normal',
-  HexByte = 'Normal', HexAscii = 'String',
-  HexCursor = 'Cursor', HexCursorMatch = 'IncSearch',
+  HexByte = 'Normal', HexAscii = 'Normal',
+  HexCursor = 'Cursor', HexCursorMatch = 'Visual',
   HexModified = 'DiffChange', HexSearch = 'Search',
   HexSearchCurrent = 'CurSearch', HexSelection = 'Visual',
 }
