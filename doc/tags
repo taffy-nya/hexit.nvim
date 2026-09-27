@@ -1,3 +1,4 @@
+:Hex	hexit.txt	/*:Hex*
 hexit	hexit.txt	/*hexit*
 hexit-commands	hexit.txt	/*hexit-commands*
 hexit-configuration	hexit.txt	/*hexit-configuration*
@@ -6,10 +7,9 @@ hexit-editing	hexit.txt	/*hexit-editing*
 hexit-install	hexit.txt	/*hexit-install*
 hexit-keys	hexit.txt	/*hexit-keys*
 hexit-limits	hexit.txt	/*hexit-limits*
-hexit-performance	hexit.txt	/*hexit-performance*
 hexit-plug	hexit.txt	/*hexit-plug*
 hexit-search	hexit.txt	/*hexit-search*
+hexit-status	hexit.txt	/*hexit-status*
 hexit-title	hexit.txt	/*hexit-title*
+hexit.nvim	hexit.txt	/*hexit.nvim*
 hexit.txt	hexit.txt	/*hexit.txt*
-logical	hexit.txt	/*logical*
-real	hexit.txt	/*real*
