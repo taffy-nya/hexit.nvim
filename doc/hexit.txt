@@ -23,7 +23,7 @@ COMMANDS                                                        *hexit-commands*
                          Reopening an active file focuses its Hex buffer.
 :HexGoto {offset}        Move to a 0-based Byte offset in decimal or 0x hex.
                          Invalid/out-of-file offsets are errors.
-:HexBytesPerRow {width}  Select 8, 16, 32 or auto in this buffer; preserve
+:HexCol {width}          Select 8, 16, 32 or auto in this buffer; preserve
                          the logical Byte and recompute linewise selection.
 :HexSearch {hex|ascii} {pattern}
                          Search forward for exact Bytes or ASCII text.
@@ -77,9 +77,10 @@ TITLE AND STATUS API                                         *hexit-title*
 Hexit keeps its feedback in one fixed title row above the data viewport. The
 title has three window-relative parts: logical mode at the left, an underlying
 Hex-only Byte-column ruler in the middle, and status information aligned to
-the right edge. The offset heading area and ASCII heading area contain no
-title labels or ASCII column numbers. The data rows and their ASCII display
-are unchanged.
+the right edge. One blank column precedes the mode and each data row, including
+offsets; one blank column follows the title address. Auto row width accounts
+for the left margin. The offset heading area and ASCII heading area contain no
+title labels or ASCII column numbers. Data Byte columns remain aligned.
 
 The left side shows `NORMAL`, `VISUAL`, `V-LINE` or `REPLACE`. This logical
 mode is displayed even when 'show_offset' is false. Neovim's actual mode stays
@@ -99,13 +100,14 @@ and absent selections contribute no field. The right side remains available
 when 'show_ascii' is false.
 
 Each side is positioned relative to its window: the mode starts at window
-column zero, and the status information uses right alignment, independent of
-the shared title text, window width and horizontal scrolling. The mode overlay
-has priority 80; the right overlay has priority 100 and wins when they overlap
-the ruler or mode overlay. Both overlays replace underlying highlight colors.
-Very narrow windows use Neovim's natural clipping; Hexit does not shorten
-addresses, hide fields, add fallback layouts or wrap the title. The overlays
-are not hidden by native selection or horizontal scrolling.
+column one, and the status information uses right alignment with a trailing
+blank column, independent of the shared title text, window width and
+horizontal scrolling. The mode overlay has priority 80; the right overlay
+has priority 100 and wins when they overlap the ruler or mode overlay. Both
+overlays replace underlying highlight colors. Very narrow windows use
+Neovim's natural clipping; Hexit does not shorten addresses, hide fields,
+add fallback layouts or wrap the title. The overlays are not hidden by
+native selection or horizontal scrolling.
 
 The title exists even when 'laststatus' is zero. Hexit never sets or changes
 'statusline', 'winbar' or 'laststatus', and does not configure lualine. Lualine

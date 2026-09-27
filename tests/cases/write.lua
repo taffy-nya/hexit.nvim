@@ -239,7 +239,7 @@ return {
             keys('2l')
             H.eq(s.cursor.offset, 1)
             vim.cmd('HexGoto 24')
-            vim.cmd('HexBytesPerRow 8')
+            vim.cmd('HexCol 8')
             keys('l')
             H.eq({ s.cursor.offset, s.cursor.nibble, s.bytes_per_row }, { 24, 1, 8 })
             keys('rFu')

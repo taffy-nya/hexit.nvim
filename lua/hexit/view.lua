@@ -156,11 +156,11 @@ local function marks(session, lay, height)
   end
   local title = status.header(status.project(session))
   vim.api.nvim_buf_set_extmark(buf, ns, 0, 0, {
-    virt_text = { { title.mode, 'HexHeaderMode' } }, virt_text_win_col = 0,
+    virt_text = { { title.mode, 'HexHeaderMode' } }, virt_text_win_col = 1,
     hl_mode = 'replace', priority = 80,
   })
   vim.api.nvim_buf_set_extmark(buf, ns, 0, 0, {
-    virt_text = { { title.right, 'HexHeaderStatus' } }, virt_text_pos = 'right_align',
+    virt_text = { { title.right .. ' ', 'HexHeaderStatus' } }, virt_text_pos = 'right_align',
     hl_mode = 'replace', priority = 100,
   })
   local matches = search.visible_matches(session, session.top_row * lay.bpr,
@@ -172,12 +172,13 @@ local function marks(session, lay, height)
     if count > 0 then
       local row = screen_row + 1
       if lay.show_offset then
+        local offset_start = lay.hex_start - lay.offset_width - 2
         local selected = selection_start and offset < selection_stop and offset + count > selection_start
-        if not selected then mark(buf, row, 0, lay.offset_width, 'HexOffset', 10) end
+        if not selected then mark(buf, row, offset_start, offset_start + lay.offset_width, 'HexOffset', 10) end
         if selected then
-          mark(buf, row, 0, lay.offset_width, 'HexOffsetSelection', 50)
+          mark(buf, row, offset_start, offset_start + lay.offset_width, 'HexOffsetSelection', 50)
         elseif not visual and session.cursor.offset >= offset and session.cursor.offset < offset + count then
-          mark(buf, row, 0, lay.offset_width, 'HexOffsetCurrent', 60)
+          mark(buf, row, offset_start, offset_start + lay.offset_width, 'HexOffsetCurrent', 60)
         end
       end
       local dirty = document.dirty_runs(session.root, session.saved_root, offset, count)

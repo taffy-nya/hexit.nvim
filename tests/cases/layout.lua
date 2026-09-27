@@ -16,12 +16,12 @@ return {
     local root = document.from_chunks({ bytes })
     local computed = layout.compute({ bytes_per_row = 8, byte_group_size = 2 }, 80, root.size)
 
-    helpers.eq(computed.hex_start, 10)
-    helpers.eq(computed.ascii_start, 31)
+    helpers.eq(computed.hex_start, 11)
+    helpers.eq(computed.ascii_start, 32)
     helpers.eq(computed.offset_width, 8)
-    helpers.eq(computed.width, 39)
+    helpers.eq(computed.width, 40)
     helpers.eq(layout.row(root, 0, computed),
-      '00000000  0020 417E 7F80 FF    . A~... ')
+      ' 00000000  0020 417E 7F80 FF    . A~... ')
 
     helpers.eq(layout.row(root, 1, computed), '')
   end),
@@ -59,6 +59,7 @@ return {
 
     helpers.eq(layout.hit(computed, 1, computed.hex_start, 0, root.size), nil)
     helpers.eq(layout.hit(computed, 2, 0, 0, root.size), nil)
+    helpers.eq(layout.hit(computed, 2, 1, 0, root.size), nil)
     helpers.eq(layout.hit(computed, 2, computed.ascii_start - 1, 0, root.size), nil)
     helpers.eq(layout.hit(computed, 2, layout.cell(computed, 0, 0, 'hex'), 0, root.size),
       { offset = 0, nibble = 0, area = 'hex' })
@@ -72,7 +73,7 @@ return {
   case('VIEW layout: auto thresholds and fixed-width overflow', function()
     local opts = { bytes_per_row = 'auto', byte_group_size = 4 }
     local expected = {
-      { 37, 8 }, { 36, 8 }, { 63, 16 }, { 62, 8 }, { 115, 32 }, { 114, 16 },
+      { 38, 8 }, { 37, 8 }, { 64, 16 }, { 63, 8 }, { 116, 32 }, { 115, 16 },
     }
     for _, threshold in ipairs(expected) do
       local computed = layout.compute(opts, threshold[1], 32)
@@ -87,10 +88,10 @@ return {
 
     local no_sections = layout.compute({
       bytes_per_row = 'auto', byte_group_size = 4, show_offset = false, show_ascii = false,
-    }, 71, 32)
+    }, 72, 32)
     helpers.eq(no_sections.bpr, 32)
-    helpers.eq(no_sections.hex_start, 0)
-    helpers.eq(no_sections.width, 71)
+    helpers.eq(no_sections.hex_start, 1)
+    helpers.eq(no_sections.width, 72)
   end),
 
   case('VIEW layout: offset width, casing, and display toggles', function()
@@ -105,23 +106,23 @@ return {
       bytes_per_row = 8, byte_group_size = 4, uppercase_hex = false,
       show_offset = false, show_ascii = false,
     }, 1, root.size)
-    helpers.eq(lower.hex_start, 0)
-    helpers.eq(lower.width, 17)
-    helpers.eq(lower.ascii_start, 19)
-    helpers.eq(layout.row(root, 0, lower), '00ff0020 7e7f80ff')
+    helpers.eq(lower.hex_start, 1)
+    helpers.eq(lower.width, 18)
+    helpers.eq(lower.ascii_start, 20)
+    helpers.eq(layout.row(root, 0, lower), ' 00ff0020 7e7f80ff')
     helpers.eq(layout.cell(lower, 0, 0, 'ascii'), nil)
     helpers.eq(layout.hit(lower, 2, lower.ascii_start, 0, root.size), nil)
     local lower_offset = layout.compute({
       bytes_per_row = 8, uppercase_hex = false, show_ascii = false,
     }, 80, root.size)
-    helpers.eq(string.sub(layout.row(root, 0x15, lower_offset), 1, lower_offset.offset_width), '000000a8')
+    helpers.eq(string.sub(layout.row(root, 0x15, lower_offset), 2, lower_offset.offset_width + 1), '000000a8')
   end),
 
   case('VIEW layout: empty document marker and non-data hit behavior', function()
     local root = document.empty()
     local computed = layout.compute({ bytes_per_row = 8, byte_group_size = 1 }, 80, root.size)
     helpers.eq(layout.row(root, 0, computed),
-      '00000000  (empty)' .. string.rep(' ', 16) .. '  ' .. string.rep(' ', 8))
+      ' 00000000  (empty)' .. string.rep(' ', 16) .. '  ' .. string.rep(' ', 8))
     helpers.eq(#layout.row(root, 0, computed), computed.width)
     helpers.eq(layout.hit(computed, 2, computed.hex_start, 0, root.size), nil)
     helpers.eq(layout.hit(computed, 2, computed.ascii_start, 0, root.size), nil)

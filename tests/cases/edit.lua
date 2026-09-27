@@ -194,7 +194,7 @@ return {
         view.render(s)
         H.eq(vim.api.nvim_win_get_cursor(0), cursor)
         H.eq(title_text('HexHeaderMode'), expected.mode)
-        H.eq(title_text('HexHeaderStatus'), expected.right)
+        H.eq(title_text('HexHeaderStatus'), expected.right .. ' ')
         return expected
       end
 

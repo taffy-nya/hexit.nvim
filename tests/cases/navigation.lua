@@ -88,19 +88,23 @@ return {
     name = 'NAV commands preserve offset and reject bad locations',
     run = function()
       local session = open(string.rep('A', 34))
+      H.eq(vim.fn.exists(':HexBytesPerRow'), 0)
       vim.cmd('HexGoto 0x10')
       H.eq(session.cursor.offset, 16)
       vim.cmd('HexGoto 16')
       H.eq(session.cursor.offset, 16)
-      vim.cmd('HexBytesPerRow 8')
+      vim.cmd('HexCol 8')
       H.eq(session.bytes_per_row, 8)
       H.eq(session.cursor.offset, 16)
-      for _, bad in ipairs({ 'HexGoto -1', 'HexGoto 1+2', 'HexGoto 34', 'HexGoto 0x', 'HexBytesPerRow 12' }) do
+      for _, bad in ipairs({ 'HexGoto -1', 'HexGoto 1+2', 'HexGoto 34', 'HexGoto 0x', 'HexCol 12' }) do
         H.eq(pcall(vim.cmd, bad), false)
         H.eq(session.cursor.offset, 16)
       end
-      vim.cmd('HexBytesPerRow 32')
+      vim.cmd('HexCol 32')
       H.eq(session.bytes_per_row, 32)
+      vim.cmd('HexCol auto')
+      H.eq(session.cursor.offset, 16)
+      H.eq(session.bytes_per_row, 16)
       H.eq(#vim.api.nvim_buf_get_lines(session.bufnr, 0, -1, false) <= session.height + 1, true)
     end,
   },
@@ -212,9 +216,9 @@ return {
       })
       local session = open(H.bytes(255, 10))
       local lines = vim.api.nvim_buf_get_lines(session.bufnr, 0, 2, false)
-      H.eq(lines[1]:sub(1, 2), '00')
-      assert(lines[2]:find('ff 0a', 1, true) == 1)
-      H.eq(session.layout.hex_start, 0)
+      H.eq(lines[1]:sub(1, 3), ' 00')
+      assert(lines[2]:find(' ff 0a', 1, true) == 1)
+      H.eq(session.layout.hex_start, 1)
       vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes('<Tab>', true, false, true), 'xt', false)
       H.eq(session.cursor.area, 'hex')
       H.eq(session.cursor.offset, 0)

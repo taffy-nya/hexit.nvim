@@ -75,6 +75,7 @@ local function assert_hex_only_header(session)
   local lay = session.layout
   local heading = vim.api.nvim_buf_get_lines(session.bufnr, 0, 1, false)[1]
   H.eq(#heading, lay.width)
+  H.eq(heading:sub(1, 1), ' ')
   for col = 0, lay.bpr - 1 do
     local hex = layout.cell(lay, col, 0, 'hex')
     H.eq(heading:sub(hex + 1, hex + 2), (lay.uppercase_hex and '%02X' or '%02x'):format(col))
@@ -182,10 +183,10 @@ return {
       H.eq(mode_count, 1)
       H.eq(right_count, 1)
       H.eq(mode_text, title.mode)
-      H.eq(right_text, title.right)
+      H.eq(right_text, title.right .. ' ')
       H.eq(mode_mark[2], 0)
       H.eq(mode_mark[3], 0)
-      H.eq(mode_mark[4].virt_text_win_col, 0)
+      H.eq(mode_mark[4].virt_text_win_col, 1)
       H.eq(mode_mark[4].priority, 80)
       H.eq(mode_mark[4].hl_mode, 'replace')
       H.eq(right_mark[2], 0)
@@ -235,7 +236,7 @@ return {
     assert_hex_only_header(s)
     assert(marked(s, 'HexHeader', 0, layout.cell(lay, 0, 0, 'hex'), layout.cell(lay, 0, 0, 'hex') + 2))
     assert(marked(s, 'HexHeaderCurrent', 0, layout.cell(lay, 0, 0, 'hex'), layout.cell(lay, 0, 0, 'hex') + 2))
-    assert(marked(s, 'HexOffsetCurrent', 1, 0, lay.offset_width))
+    assert(marked(s, 'HexOffsetCurrent', 1, 1, lay.offset_width + 1))
     vim.cmd('HexGoto 16')
     keys('V')
     H.eq(api.get_status(s.bufnr).selection.length, 2)
@@ -245,7 +246,7 @@ return {
     assert(not marked(s, 'HexCursor', 2, layout.cell(lay, 0, 0, 'hex'), layout.cell(lay, 0, 0, 'hex') + 1))
     assert(marked(s, 'HexCursorMatch', 2, layout.cell(lay, 0, 0, 'ascii'),
       layout.cell(lay, 0, 0, 'ascii') + 1))
-    assert(marked(s, 'HexOffsetSelection', 2, 0, lay.offset_width))
+    assert(marked(s, 'HexOffsetSelection', 2, 1, lay.offset_width + 1))
     assert_hex_only_header(s)
   end },
   { name = 'UX logical scrolloff preserves margin and physical title', run = function()
@@ -317,10 +318,10 @@ return {
   { name = 'UX empty and one-byte titles keep position fields and hex-only headers', run = function()
     local empty = open('')
     assert_hex_only_header(empty)
-    H.eq(select(2, title_text(empty, 'HexHeaderStatus')), 'HEX  (empty)')
+    H.eq(select(2, title_text(empty, 'HexHeaderStatus')), 'HEX  (empty) ')
     local short = open('A')
     assert_hex_only_header(short)
-    H.eq(select(2, title_text(short, 'HexHeaderStatus')), 'HEX  0x00000000')
+    H.eq(select(2, title_text(short, 'HexHeaderStatus')), 'HEX  0x00000000 ')
     H.eq(short.root.size, 1)
   end },
   { name = 'UX ruler aligns row, group and display-option combinations', run = function()
@@ -448,8 +449,8 @@ return {
       assert_window_options(first_win, 'LocalHexStatus', 'LocalHexWinbar',
         global_statusline, global_winbar, laststatus)
       assert_window_options(second_win, '', '', global_statusline, global_winbar, laststatus)
-      H.eq(select(2, title_text(b, 'HexHeaderStatus')), 'HEX  0x00000000')
-      H.eq(select(2, title_text(c, 'HexHeaderStatus')), 'HEX  0x00000000')
+      H.eq(select(2, title_text(b, 'HexHeaderStatus')), 'HEX  0x00000000 ')
+      H.eq(select(2, title_text(c, 'HexHeaderStatus')), 'HEX  0x00000000 ')
 
       for _, value in ipairs({ 0, 1, 2, 3 }) do
         vim.api.nvim_set_option_value('laststatus', value, { scope = 'global' })

@@ -55,7 +55,7 @@ end
 local function rendered_width(bpr, group, offset_width, show_offset, show_ascii)
   local prefix_width = show_offset and offset_width + 2 or 0
   local hex_width = 2 * bpr + floor((bpr - 1) / group)
-  return prefix_width + hex_width + (show_ascii and 2 + bpr or 0)
+  return 1 + prefix_width + hex_width + (show_ascii and 2 + bpr or 0)
 end
 
 function M.compute(opts, width, size)
@@ -95,7 +95,7 @@ function M.compute(opts, width, size)
 
   local hex_width = 2 * bpr + floor((bpr - 1) / group)
   local prefix_width = show_offset and offset_width + 2 or 0
-  local hex_start = prefix_width
+  local hex_start = 1 + prefix_width
   local ascii_start = hex_start + hex_width + 2
 
   return {
@@ -123,6 +123,7 @@ function M.row(root, row_index, layout)
   local data = available > 0 and document.read(root, start, available) or ''
   local parts = {}
 
+  parts[#parts + 1] = ' '
   if layout.show_offset then
     local offset = format_hex(start, layout.uppercase_hex)
     parts[#parts + 1] = string.rep('0', math.max(0, layout.offset_width - #offset))
