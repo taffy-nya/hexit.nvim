@@ -15,6 +15,10 @@ function M.setup(opts)
   current = config.merge(opts)
 end
 
+function M.get_status(bufnr)
+  return require('hexit.status').get(bufnr)
+end
+
 function M.open(path)
   require_version()
   if path == nil or path == '' then

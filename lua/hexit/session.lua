@@ -41,6 +41,7 @@ end
 
 function M.close(session)
   if session.phase == 'closed' then return end
+  input.invalidate_search(session)
   view.detach(session)
   motion.cancel(session)
   search.reset(session)
@@ -51,6 +52,7 @@ function M.close(session)
   session.generation = session.generation + 1
   session.token.cancelled = true
   by_buffer[session.bufnr] = nil
+  require('hexit.status').changed(session)
   by_path[path_key(session.path)] = nil
   if session.augroup then
     vim.api.nvim_del_augroup_by_id(session.augroup)
@@ -79,8 +81,7 @@ function M.create(path, options, on_change)
   vim.bo[buf].bufhidden = 'hide'
   vim.bo[buf].swapfile = false
   vim.bo[buf].undofile = false
-  vim.bo[buf].filetype = 'hexit'
-
+  -- FileType runs after the buffer-local input layer so explicit user mappings win.
   local session = {
     bufnr = buf, path = path, phase = 'loading', root = nil, saved_root = nil,
     revision = 0, cursor = { offset = 0, nibble = 0, area = 'hex' },
@@ -103,6 +104,7 @@ function M.create(path, options, on_change)
   input.attach(session)
   require('hexit.write').attach(session)
   vim.api.nvim_set_current_buf(buf)
+  vim.bo[buf].filetype = 'hexit'
   session.token.on_progress = function(read, total)
     if session.phase ~= 'loading' then return end
     session.loaded_bytes, session.total_bytes = read, total

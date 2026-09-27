@@ -5,12 +5,16 @@ local modules = {
   'tests.cases.entry',
   'tests.cases.layout',
   'tests.cases.motion',
+  'tests.cases.ux_view',
   'tests.cases.navigation',
+  'tests.cases.ux_mapping',
   'tests.cases.edit',
   'tests.cases.format',
   'tests.cases.copy',
+  'tests.cases.ux_completion',
   'tests.cases.write',
   'tests.cases.search',
+  'tests.cases.ux_search',
   'tests.cases.search_ui',
 }
 local failed, total = 0, 0

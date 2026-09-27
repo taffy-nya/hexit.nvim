@@ -1,7 +1,10 @@
 local M = {}
 
 local links = {
-  HexOffset = 'Comment', HexByte = 'Normal', HexAscii = 'String',
+  HexOffset = 'Comment', HexOffsetCurrent = 'CursorLineNr', HexOffsetSelection = 'Visual',
+  HexHeader = 'Comment', HexHeaderCurrent = 'IncSearch', HexHeaderSelection = 'Visual',
+  HexHeaderMode = 'ModeMsg', HexHeaderStatus = 'Normal',
+  HexByte = 'Normal', HexAscii = 'String',
   HexCursor = 'Cursor', HexCursorMatch = 'IncSearch',
   HexModified = 'DiffChange', HexSearch = 'Search',
   HexSearchCurrent = 'CurSearch', HexSelection = 'Visual',

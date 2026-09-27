@@ -32,12 +32,13 @@ local function clamp_top(top_row, total_rows, height)
   return math.max(0, math.min(top_row or 0, maximum))
 end
 
-local function visible_top(top_row, row, total_rows, height)
+function M.visible_top(top_row, row, total_rows, height, scrolloff)
+  local margin = math.min(math.max(0, scrolloff or 0), floor((height - 1) / 2))
   top_row = clamp_top(top_row, total_rows, height)
-  if row < top_row then
-    top_row = row
-  elseif row >= top_row + height then
-    top_row = row - height + 1
+  if row < top_row + margin then
+    top_row = row - margin
+  elseif row > top_row + height - 1 - margin then
+    top_row = row - (height - 1 - margin)
   end
   return clamp_top(top_row, total_rows, height)
 end
@@ -271,7 +272,8 @@ local function commit(session, cursor, preferred_col, top_row, root, bpr, height
   session.cursor.area = cursor.area
   session.preferred_col = preferred_col
   local total_rows = rows_in(root, bpr)
-  session.top_row = visible_top(top_row, floor(cursor.offset / bpr), total_rows, height)
+  session.top_row = M.visible_top(top_row, floor(cursor.offset / bpr), total_rows, height,
+    session.scrolloff or 0)
   return true
 end
 
@@ -369,7 +371,7 @@ function M.move(session, action, count, has_count, height, done)
     local target_row = direction < 0 and row - amount or row + amount
     cursor.offset = row_offset(target_row, preferred_col, root, bpr)
 
-    local current_top = visible_top(top_row, row, rows, view_height)
+    local current_top = M.visible_top(top_row, row, rows, view_height, session.scrolloff or 0)
     local screen_row = row - current_top
     top_row = clamp_top(target_row - screen_row, rows, view_height)
   elseif action == 'WordNext' or action == 'WordPrev' or action == 'WordEnd' then

@@ -1,6 +1,8 @@
 local layout = require('hexit.layout')
 local document = require('hexit.document')
 local search = require('hexit.search')
+local motion = require('hexit.motion')
+local status = require('hexit.status')
 
 local M = {}
 local ns = vim.api.nvim_create_namespace('HexitView')
@@ -8,7 +10,13 @@ M.namespace = ns
 local window_options = { 'wrap', 'number', 'relativenumber', 'foldcolumn', 'signcolumn', 'conceallevel', 'scrolloff' }
 local window_values = { wrap = false, number = false, relativenumber = false, foldcolumn = '0', signcolumn = 'no', conceallevel = 0, scrolloff = 0 }
 local saved_windows, preceding_windows, tracked_buffers = {}, {}, {}
-local rendering = false
+local rendering, setting_options = false, false
+local function set_local(win, option, value)
+  setting_options = true
+  local ok, err = pcall(vim.api.nvim_set_option_value, option, value, { win = win, scope = 'local' })
+  setting_options = false
+  if not ok then error(err) end
+end
 
 local function windows(session)
   local result = {}
@@ -47,6 +55,17 @@ vim.api.nvim_create_autocmd('WinClosed', {
     saved_windows[win], preceding_windows[win] = nil, nil
   end,
 })
+vim.api.nvim_create_autocmd('OptionSet', {
+  group = transitions, pattern = 'scrolloff',
+  callback = function()
+    if setting_options then return end
+    local win = vim.api.nvim_get_current_win()
+    local saved = saved_windows[win]
+    if not saved then return end
+    saved.scrolloff = vim.api.nvim_get_option_value('scrolloff', { win = win, scope = 'local' })
+    set_local(win, 'scrolloff', 0)
+  end,
+})
 
 local function set_window(win)
   if not saved_windows[win] then
@@ -54,7 +73,8 @@ local function set_window(win)
     preceding_windows[win] = nil
   end
   for option, value in pairs(window_values) do
-    vim.api.nvim_set_option_value(option, value, { win = win })
+    if option == 'scrolloff' then set_local(win, option, value)
+    else vim.api.nvim_set_option_value(option, value, { win = win }) end
   end
 end
 
@@ -64,7 +84,8 @@ local function restore_window(win)
   saved_windows[win] = nil
   if not vim.api.nvim_win_is_valid(win) then return end
   for option, value in pairs(saved) do
-    vim.api.nvim_set_option_value(option, value, { win = win })
+    if option == 'scrolloff' then set_local(win, option, value)
+    else vim.api.nvim_set_option_value(option, value, { win = win }) end
   end
 end
 vim.api.nvim_create_autocmd('BufEnter', {
@@ -83,47 +104,25 @@ local function restore_after_leave(win, buf)
     end
   end)
 end
+local function logical_scrolloff(win)
+  local saved = win and saved_windows[win]
+  local local_value = saved and saved.scrolloff or -1
+  return local_value >= 0 and local_value or vim.api.nvim_get_option_value('scrolloff', { scope = 'global' })
+end
 
 local function keep_title_visible()
   if vim.fn.line('w0') ~= 1 then vim.fn.winrestview({ topline = 1 }) end
 end
 
-local function heading(lay, session, width)
+local function heading(lay)
   local chars = {}
-  local selected = 0
-  if session.anchor ~= nil and session.root then
-    local start, stop = require('hexit.actions').selection(session)
-    selected = stop - start
-  end
-  local mode = session.mode == 'replace' and ('REPLACE ' .. session.cursor.area:upper())
-    or ((session.mode == 'visual' or session.mode == 'visual_line')
-      and ('VISUAL (' .. selected .. ' B)') or 'NORMAL')
-  local prefix = session.cursor.area == 'hex'
-    and ('%s H%d'):format(mode, session.cursor.nibble) or (mode .. ' A')
-  if session.search and session.search.query then
-    local result = session.search
-    local ordinal = result.ordinal or (result.total == 0 and 0 or '?')
-    local total = result.total or '?'
-    prefix = prefix .. ('  %s/%s%s  '):format(ordinal, total, result.pending and ' searching…' or '')
-  end
   for col = 0, lay.bpr - 1 do
     local byte = (lay.uppercase_hex and '%02X' or '%02x'):format(col)
     local screen = layout.cell(lay, col, 0, 'hex')
     chars[screen + 1], chars[screen + 2] = byte:sub(1, 1), byte:sub(2, 2)
-    if lay.show_ascii then
-      chars[layout.cell(lay, col, 0, 'ascii') + 1] =
-        (lay.uppercase_hex and '%X' or '%x'):format(col % 16)
-    end
   end
-  -- Status takes priority over the first column numbers in a narrow viewport;
-  -- it must not disappear past the right edge of the fixed-width data grid.
-  for i = 1, math.min(#prefix, width) do chars[i] = prefix:sub(i, i) end
-  local limit = math.max(lay.width, math.min(#prefix, width))
-  for i = 1, limit do if chars[i] == nil then chars[i] = ' ' end end
-  local area = session.cursor.area:upper()
-  local nibble = session.cursor.area == 'hex' and (session.cursor.nibble == 0 and ' HI' or ' LO') or ''
-  local status = ('  %s %s%s  %d B/row'):format(mode, area, nibble, lay.bpr)
-  return table.concat(chars, '', 1, limit) .. status
+  for i = 1, lay.width do if chars[i] == nil then chars[i] = ' ' end end
+  return table.concat(chars, '', 1, lay.width)
 end
 
 local function mark(buf, line, start_col, end_col, group, priority)
@@ -137,15 +136,32 @@ local function marks(session, lay, height)
   vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
   if session.phase ~= 'ready' and session.phase ~= 'saving' then return end
   local size = session.root.size
-  local selection_start, selection_stop
-  if session.anchor ~= nil then
-    selection_start = math.min(session.anchor, session.cursor.offset)
-    selection_stop = math.max(session.anchor, session.cursor.offset) + 1
-    if session.mode == 'visual_line' then
-      selection_start = math.floor(selection_start / lay.bpr) * lay.bpr
-      selection_stop = math.min(size, math.ceil(selection_stop / lay.bpr) * lay.bpr)
+  local selection_start, selection_stop = require('hexit.actions').selection(session)
+  local visual = session.mode == 'visual' or session.mode == 'visual_line'
+  local selected_columns = {}
+  if selection_start then
+    if selection_stop - selection_start >= lay.bpr then
+      for col = 0, lay.bpr - 1 do selected_columns[col] = true end
+    else
+      for byte = selection_start, selection_stop - 1 do selected_columns[byte % lay.bpr] = true end
     end
   end
+  for col = 0, lay.bpr - 1 do
+    local hex = layout.cell(lay, col, 0, 'hex')
+    mark(buf, 0, hex, hex + 2, 'HexHeader', 10)
+    local group = selection_start and selected_columns[col] and 'HexHeaderSelection'
+      or not visual and size > 0 and session.cursor.offset % lay.bpr == col and 'HexHeaderCurrent'
+    if group then mark(buf, 0, hex, hex + 2, group, group == 'HexHeaderSelection' and 50 or 60) end
+  end
+  local title = status.header(status.project(session))
+  vim.api.nvim_buf_set_extmark(buf, ns, 0, 0, {
+    virt_text = { { title.mode, 'HexHeaderMode' } }, virt_text_win_col = 0,
+    hl_mode = 'replace', priority = 80,
+  })
+  vim.api.nvim_buf_set_extmark(buf, ns, 0, 0, {
+    virt_text = { { title.right, 'HexHeaderStatus' } }, virt_text_pos = 'right_align',
+    hl_mode = 'replace', priority = 100,
+  })
   local matches = search.visible_matches(session, session.top_row * lay.bpr,
     math.min(size, (session.top_row + height) * lay.bpr))
   local match_index = 1
@@ -155,6 +171,13 @@ local function marks(session, lay, height)
     if count > 0 then
       local row = screen_row + 1
       if lay.show_offset then mark(buf, row, 0, lay.offset_width, 'HexOffset', 10) end
+      if lay.show_offset then
+        if selection_start and offset < selection_stop and offset + count > selection_start then
+          mark(buf, row, 0, lay.offset_width, 'HexOffsetSelection', 50)
+        elseif not visual and session.cursor.offset >= offset and session.cursor.offset < offset + count then
+          mark(buf, row, 0, lay.offset_width, 'HexOffsetCurrent', 60)
+        end
+      end
       local dirty = document.dirty_runs(session.root, session.saved_root, offset, count)
       local dirty_idx = 1
       for col = 0, count - 1 do
@@ -182,7 +205,7 @@ local function marks(session, lay, height)
           mark(buf, row, hex, hex + 2, 'HexSelection', 50)
           if ascii then mark(buf, row, ascii, ascii + 1, 'HexSelection', 50) end
         end
-        if byte == session.cursor.offset then
+        if not visual and byte == session.cursor.offset then
           if session.cursor.area == 'hex' then
             mark(buf, row, hex + session.cursor.nibble, hex + session.cursor.nibble + 1, 'HexCursor', 70)
             if ascii then mark(buf, row, ascii, ascii + 1, 'HexCursorMatch', 60) end
@@ -214,6 +237,7 @@ function M.render(session)
     end
     session.active_win = owner
     local owner_height = owner and math.max(1, vim.api.nvim_win_get_height(owner) - 1) or height
+    session.scrolloff = logical_scrolloff(owner)
     local size = session.root and session.root.size or 0
     local lay = layout.compute(session.options, width, size)
     session.layout = lay
@@ -221,17 +245,14 @@ function M.render(session)
     session.height = height
     session.owner_height = owner_height
     if (session.phase == 'ready' or session.phase == 'saving') and size > 0 then
-      local rows = math.ceil(size / lay.bpr)
-      session.top_row = math.max(0, math.min(session.top_row, math.max(0, rows - owner_height)))
-      local row = math.floor(session.cursor.offset / lay.bpr)
-      if row < session.top_row then session.top_row = row end
-      if row >= session.top_row + owner_height then session.top_row = row - owner_height + 1 end
+      session.top_row = motion.visible_top(session.top_row, math.floor(session.cursor.offset / lay.bpr),
+        math.ceil(size / lay.bpr), owner_height, session.scrolloff)
     else
       session.top_row = 0
     end
     local lines = {}
     if session.phase == 'ready' or session.phase == 'saving' then
-      lines[1] = heading(lay, session, width)
+      lines[1] = heading(lay)
       for i = 0, height - 1 do
         lines[#lines + 1] = layout.row(session.root, session.top_row + i, lay)
       end
@@ -262,18 +283,21 @@ function M.render(session)
   end, debug.traceback)
   rendering = false
   if not ok then error(err) end
+  status.changed(session)
 end
 
 function M.scroll(session, rows)
   if (session.phase ~= 'ready' and session.phase ~= 'saving') or session.root.size == 0 then return end
-  local max_row = math.max(0, math.ceil(session.root.size / session.bytes_per_row) - session.owner_height)
-  session.top_row = math.max(0, math.min(max_row, session.top_row + rows))
-  local row = math.floor(session.cursor.offset / session.bytes_per_row)
-  if row < session.top_row then
-    session.cursor.offset = math.min(session.root.size - 1, session.top_row * session.bytes_per_row + session.cursor.offset % session.bytes_per_row)
-  elseif row >= session.top_row + session.owner_height then
-    session.cursor.offset = math.min(session.root.size - 1, (session.top_row + session.owner_height - 1) * session.bytes_per_row + session.cursor.offset % session.bytes_per_row)
-  end
+  local bpr, height = session.bytes_per_row, session.owner_height
+  local total = math.ceil(session.root.size / bpr)
+  local max_top = math.max(0, total - height)
+  local top = math.max(0, math.min(max_top, session.top_row + rows))
+  local margin = math.min(math.max(0, session.scrolloff or 0), math.floor((height - 1) / 2))
+  local low = top == 0 and 0 or top + margin
+  local high = top == max_top and total - 1 or top + height - 1 - margin
+  local row = math.max(low, math.min(high, math.floor(session.cursor.offset / bpr)))
+  session.top_row = top
+  session.cursor.offset = math.min(session.root.size - 1, row * bpr + session.cursor.offset % bpr)
   M.render(session)
 end
 

@@ -151,7 +151,7 @@ return {
         end
       end
       H.eq(selected, 4)
-      H.eq(active and partner, true)
+      H.eq(active or partner, false)
       keys('rFF')
       H.eq(value(s), H.bytes(255, 255, 3, 4, 5, 6, 7, 8, 9))
       local dirty = 0
@@ -170,21 +170,43 @@ return {
     end,
   },
   {
-    name = 'VIEW 80-column title keeps long Visual range and both Replace areas visible',
+    name = 'EDIT logical Visual and Replace state stays visible in title',
     run = function()
       local original = string.rep('A', 1024)
       local s = open(original)
-      H.eq(vim.api.nvim_win_get_width(0), 80)
-      local function visible_title()
-        return vim.api.nvim_buf_get_lines(s.bufnr, 0, 1, false)[1]:sub(1, vim.api.nvim_win_get_width(0))
+      local function title_text(group)
+        local text, count = '', 0
+        for _, item in ipairs(vim.api.nvim_buf_get_extmarks(s.bufnr, view.namespace, 0, -1, { details = true })) do
+          for _, chunk in ipairs(item[4].virt_text or {}) do
+            if chunk[2] == group then
+              text, count = text .. chunk[1], count + 1
+            end
+          end
+        end
+        H.eq(count, 1)
+        return text
       end
+      local function check_title(mode)
+        local expected = require('hexit.status').header(require('hexit').get_status(s.bufnr))
+        H.eq(expected.mode, mode)
+        local cursor = vim.api.nvim_win_get_cursor(0)
+        view.render(s)
+        H.eq(vim.api.nvim_win_get_cursor(0), cursor)
+        H.eq(title_text('HexHeaderMode'), expected.mode)
+        H.eq(title_text('HexHeaderStatus'), expected.right)
+        return expected
+      end
+
       keys('VG')
       H.eq({ require('hexit.actions').selection(s) }, { 0, 1024 })
-      assert(visible_title():find('VISUAL (1024 B)', 1, true) == 1, visible_title())
+      local visual = check_title('V-LINE')
+      assert(visual.right:find('1024B', 1, true), visual.right)
       keys('<Esc>ggR')
-      assert(visible_title():find('REPLACE HEX', 1, true) == 1, visible_title())
+      local hex_replace = check_title('REPLACE')
+      H.eq(hex_replace.right, 'HEX  0x00000000')
       keys('<Esc><Tab>R')
-      assert(visible_title():find('REPLACE ASCII', 1, true) == 1, visible_title())
+      local ascii_replace = check_title('REPLACE')
+      H.eq(ascii_replace.right, 'ASCII  0x00000000')
       keys('<Esc>')
       H.eq(value(s), original)
     end,

@@ -1,4 +1,5 @@
 local document = require('hexit.document')
+local message = require('hexit.message')
 
 local M = {}
 local BLOCK = 64 * 1024
@@ -212,8 +213,7 @@ local function ensure_prefix(state, callback)
     if state._generation == record.generation
       and state.query == query
       and state._root == record.root
-      and state._revision == record.revision
-      and not state._suspended then
+      and state._revision == record.revision then
       callback(prefix)
     end
   end
@@ -455,6 +455,12 @@ local function finish_navigation(session, state, generation, request, offset, ra
   state.pending = false
   set_cursor(session, state, offset)
   notify(session, state, generation)
+  if wrapped then
+    local text = request.direction == 1
+      and 'search hit BOTTOM, continuing at TOP'
+      or 'search hit TOP, continuing at BOTTOM'
+    message.show(text, 'ModeMsg')
+  end
 end
 
 local function target_rank(session, state, generation, request, prefix_count)
@@ -465,22 +471,24 @@ local function target_rank(session, state, generation, request, prefix_count)
     state.pending = false
     state.current, state.ordinal, state.wrapped = nil, 0, false
     notify(session, state, generation)
+    message.show('Pattern not found')
     return
   end
 
-  local count = (request.count - 1) % total + 1
+  local requested_count = request.count
+  local count = (requested_count - 1) % total + 1
   local rank, wrapped
   if request.direction == 1 then
     local after = total - prefix_count
     if count <= after then
-      rank, wrapped = prefix_count + count, false
+      rank, wrapped = prefix_count + count, requested_count > after
     else
-      rank, wrapped = count - after, true
+      rank, wrapped = count - after, requested_count > after
     end
   elseif count <= prefix_count then
-    rank, wrapped = prefix_count - count + 1, false
+    rank, wrapped = prefix_count - count + 1, requested_count > prefix_count
   else
-    rank, wrapped = total - (count - prefix_count) + 1, true
+    rank, wrapped = total - (count - prefix_count) + 1, requested_count > prefix_count
   end
 
   local index = state.index
@@ -584,6 +592,7 @@ local function make_state(session, query, direction)
     direction = direction,
     total = nil,
     pending = false,
+    visible = true,
     current = nil,
     ordinal = nil,
     wrapped = false,
@@ -592,11 +601,10 @@ local function make_state(session, query, direction)
     _revision = session.revision,
     _generation = 1,
     _prefix_records = {},
-    _suspended = false,
   }
 end
 
-local function stop_state(state, keep_visible)
+local function stop_state(state)
   if not state then return end
   state._generation = state._generation + 1
   cancel_task(state._index_task)
@@ -605,7 +613,7 @@ local function stop_state(state, keep_visible)
   state._index_task, state._visible_task = nil, nil
   state._visible_request = nil
   detach_prefix_records_for_state(state)
-  if not keep_visible then state._visible_cache = nil end
+  state._visible_cache = nil
 end
 
 function M.start(session, query, direction, count)
@@ -617,7 +625,7 @@ function M.start(session, query, direction, count)
   end
   if not session.root then error('search.start requires a ready document', 2) end
 
-  stop_state(session.search, false)
+  stop_state(session.search)
   local state = make_state(session, query, direction)
   state._request = {
     direction = direction,
@@ -638,7 +646,8 @@ function M.next(session, direction, count)
   count = validate_count(count)
   local generation = state._generation
   cancel_navigation(state)
-  state._suspended = false
+  state.visible = true
+  state._visible_cache = nil
   local request = {
     direction = direction,
     count = count,
@@ -651,38 +660,53 @@ function M.next(session, direction, count)
   if state.index then begin_navigation(session, state, generation, request) end
 end
 
-function M.cancel(session, discard)
-  if discard then return M.reset(session) end
+function M.suspend_navigation(session)
   local state = session.search
-  if not state then return end
-  local generation = state._generation + 1
-  stop_state(state, true)
+  if not state or not state.query then return end
+  cancel_navigation(state)
+  state._request = nil
+  local index = state.index
+  local indexed = index and index.root == session.root and index.revision == session.revision
+  state.pending = state.visible and not indexed
+  notify(session, state, state._generation)
+  if state.visible and not indexed then
+    ensure_index(session, state, state._generation)
+  end
+end
+
+function M.cancel(session)
+  local state = session.search
+  if not state or not state.query or not state.visible then return end
+  local index = state.index
+  local indexed = index and index.root == session.root and index.revision == session.revision
+  stop_state(state)
+  state.visible = false
   state.pending = false
   state._request = nil
-  state._suspended = state.total == nil
-  if state.total == nil then
-    state.index = nil
-    state.current, state.ordinal, state.wrapped = nil, nil, false
+  state.current, state.ordinal, state.wrapped = nil, nil, false
+  state._rebuild_cursor = nil
+  if not indexed then
+    state.index, state.total = nil, nil
   end
-  state._generation = generation
-  notify(session, state, generation)
+  notify(session, state, state._generation)
 end
 
 function M.reset(session)
-  stop_state(session.search, false)
+  stop_state(session.search)
   session.search = nil
 end
 
 function M.on_edit(session)
   local previous = session.search
   if not previous or not previous.query or not session.root then return end
-  local query, direction = previous.query, previous.direction
-  stop_state(previous, false)
+  local query, direction, visible = previous.query, previous.direction, previous.visible
+  stop_state(previous)
   local state = make_state(session, query, direction)
-  state.pending = true
-  state._rebuild_cursor = session.cursor.offset
+  state.visible = visible
+  state.pending = visible
+  if visible then state._rebuild_cursor = session.cursor.offset end
   session.search = state
-  ensure_index(session, state, state._generation)
+  if visible then ensure_index(session, state, state._generation) end
 end
 
 local function prioritize_visible_ranges(ranges, current, start, stop, pattern_length)
@@ -711,7 +735,7 @@ end
 function M.visible_matches(session, start, stop)
   local state = session.search
   local root = session.root
-  if not state or not state.query or not root or state._root ~= root
+  if not state or not state.query or not state.visible or not root or state._root ~= root
     or state._revision ~= session.revision or session.phase == 'closed' then return {} end
   if type(start) ~= 'number' or type(stop) ~= 'number' then return {} end
   start = min(root.size, max(0, floor(start)))
@@ -725,7 +749,6 @@ function M.visible_matches(session, start, stop)
     return cache.matches
   end
   state._visible_cache = nil
-  if state._suspended then return {} end
 
   local request = state._visible_request
   if request and request.root == root and request.revision == session.revision
@@ -742,8 +765,7 @@ function M.visible_matches(session, start, stop)
   local generation = state._generation
   local prefix_ready = state.query._prefix ~= nil
   local function scan(prefix)
-    if not live(session, state, generation) or state._suspended
-      or state._visible_request ~= request then return end
+    if not live(session, state, generation) then return end
     local query = state.query
     local pattern_length = #query.bytes
     local scan_start = max(0, start - pattern_length + 1)

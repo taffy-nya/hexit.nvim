@@ -4,8 +4,10 @@
 INTRODUCTION                                                         *hexit*
 
 Hexit opens an existing regular file as a binary snapshot in a separate
-'acwrite' buffer. It shows a fixed title and a bounded Offset/Hex/ASCII
-viewport, not a whole-file text conversion. Use |:Hex| to open a file. Source
+'acwrite' buffer. It reserves one fixed title row for logical mode, a Hex-only
+Byte-column ruler and right-aligned status above a bounded Offset/Hex/ASCII
+viewport, not a whole-file text conversion. The title has no ASCII ruler.
+Use |:Hex| to open a file. Source
 files changed by another process are NOT detected. Do not edit the file
 elsewhere while using Hexit: |:write| replaces the source snapshot.
 
@@ -30,7 +32,8 @@ COMMANDS                                                        *hexit-commands*
 :HexCopyAs [format] [register]
                          Encode current Byte or Visual range as text. Default
                          format is `hex`; default register is `+`. Registers
-                         `+`, `*`, `"` only. See |hexit-copy-as|.
+                         `+`, `*`, `"` only. Native command completion offers
+                         formats first, registers second; see |hexit-copy-as|.
 :write                   Save complete binary document to source path through
                          a sibling temporary file, fsync, close, rename.
                          Failed write keeps original file, dirty state and
@@ -62,15 +65,112 @@ Unknown/invalid fields fail. Repeated setup affects new sessions only.
 keys; replace input temporarily captures printable keys and restores user
 mappings on exit. Hex windows sharing a buffer share one cursor/viewport; the
 narrowest window determines auto row width, the active window controls the
-visible cursor/page height. Hex temporarily uses window-local scrolloff=0 and
-restores the prior local setting (including global inheritance) on leaving.
+visible cursor/page height. Physical local scrolloff=0 keeps the title fixed;
+the saved user scrolloff controls the *logical* viewport margin and is
+restored on leaving (including global inheritance). Setting local scrolloff
+while in Hex updates that margin and the value later restored. No pixel-smooth
+scrolling is promised.
+
+=============================================================================
+TITLE AND STATUS API                                         *hexit-title*
+
+Hexit keeps its feedback in one fixed title row above the data viewport. The
+title has three window-relative parts: logical mode at the left, an underlying
+Hex-only Byte-column ruler in the middle, and status information aligned to
+the right edge. The offset heading area and ASCII heading area contain no
+title labels or ASCII column numbers. The data rows and their ASCII display
+are unchanged.
+
+The left side shows `NORMAL`, `VISUAL`, `V-LINE` or `REPLACE`. This logical
+mode is displayed even when 'show_offset' is false. Neovim's actual mode stays
+Normal except during native / ? command-line input. The Hex ruler writes each
+Byte-column number at its actual Hex cell; it follows the configured grouping,
+bytes-per-row and letter case. The title has no ASCII ruler.
+
+The right side shows fields in this order: Visual selection length as `NB`
+(only while selected), visible search count (only while results are visible),
+current area `HEX` or `ASCII`, and the 0-based Byte address. Nonempty fields
+are separated by exactly two spaces. Addresses use the configured Hex case,
+have a `0x` prefix and at least eight digits; an empty file shows `(empty)`.
+The address is the current Byte position, not a selection range. Search count
+is `?/?` while counting, `0/0` when complete with no matches, `k/total` at a
+current hit, or `?/total` when complete without a current hit. Hidden searches
+and absent selections contribute no field. The right side remains available
+when 'show_ascii' is false.
+
+Each side is positioned relative to its window: the mode starts at window
+column zero, and the status information uses right alignment, independent of
+the shared title text, window width and horizontal scrolling. The mode overlay
+has priority 80; the right overlay has priority 100 and wins when they overlap
+the ruler or mode overlay. Both overlays replace underlying highlight colors.
+Very narrow windows use Neovim's natural clipping; Hexit does not shorten
+addresses, hide fields, add fallback layouts or wrap the title. The overlays
+are not hidden by native selection or horizontal scrolling.
+
+The title exists even when 'laststatus' is zero. Hexit never sets or changes
+'statusline', 'winbar' or 'laststatus', and does not configure lualine. Lualine
+is optional and is not a Hexit dependency or a required setup. Neovim 0.12.5's
+default statusline uses `%m`: a modified, nomodifiable buffer shows `[+-]`,
+and a successfully saved buffer shows `[-]`. In a lualine filename component,
+`[+]` means modified and `[-]` means nomodifiable or readonly; both may appear,
+and `[-]` is not a saved-state marker. The title never shows a dirty/save
+marker.
+
+Default highlight links (all default links, so themes may override them):
+  HexHeader -> Comment             HexHeaderCurrent -> IncSearch
+  HexHeaderSelection -> Visual     HexOffsetCurrent -> CursorLineNr
+  HexOffsetSelection -> Visual     HexHeaderMode -> ModeMsg
+  HexHeaderStatus -> Normal
+Existing HexOffset -> Comment and data-group links remain unchanged. In
+Normal/Replace, the complete current Hex column number and current row offset
+are highlighted; HexCursor/HexCursorMatch continue to mark the active nibble
+and corresponding Byte. In Visual/Visual Line, the selected Hex column set
+and actual selected row offsets are highlighted, with no separate current
+Byte/column/offset color. The data selection behavior is unchanged.
+
+Public Lua interface: >lua
+  local s = require('hexit').get_status(bufnr)
+<
+This remains an optional external API, not the default display path. bufnr
+omitted or 0 means current buffer. Invalid, ordinary or wiped buffers return
+nil; other calls return an independent small table, not a mutable session.
+The accessor does not read disk, scan, render or modify options. Fields and
+units:
+  bufnr, phase                 number; loading/ready/saving/error
+  mode, mode_text              normal/visual/visual_line/replace and uppercase
+  area, nibble                 hex/ascii; Hex high/low, ASCII nil
+  size, offset                 Byte size and 0-based cursor offset; both nil
+                               before load; empty offset nil
+  bytes_per_row                actual 8/16/32 when a layout exists
+  selection                    nil or { start, stop, length }, [start,stop)
+  search                       nil or { kind, direction, visible, pending,
+                               ordinal, total } (hidden => ordinal nil)
+  input_kind                   nil or captured hex/ascii while / ? is active
+  position_text                "--" unloaded, "(empty)" empty, otherwise
+                               0x plus at least eight address digits
+  selection_text               "" or "Sel: N B"
+  range_text                   "" or inclusive displayed start-end (N B);
+                               internally selection remains half-open
+  area_text                    HEX HI / HEX LO / ASCII
+  search_text                  "" hidden, searching… ?/? pending, 0/0 empty,
+                               k/total at a hit, ?/total without current hit
+
+Addresses use the configured Hex case, a fixed 0x prefix and enough digits
+for the file's last Byte. Hexit emits `User HexitStatusChanged` with
+`data = { bufnr = N }` after visible status changes, including asynchronous
+scan completion and close; notifications are coalesced per event-loop turn.
+Reading the snapshot does not emit the event. External consumers may use the
+snapshot and event to build their own integrations; Hexit itself needs no
+statusline components, lualine configuration or refresh callback.
 
 =============================================================================
 MOVEMENT                                                          *hexit-keys*
 
-The actual Neovim mode stays Normal. Hexit maintains logical Normal, Visual,
-Visual Line, and Replace modes. Counts are decimal, limited to 2,147,483,647.
-`0` without a preceding count is line start. `Esc` clears count and prefix.
+The actual Neovim mode stays Normal except during native / ? command-line
+input. Hexit maintains logical Normal, Visual, Visual Line, and Replace modes,
+shown in the title (see |hexit-title|). Counts are decimal,
+limited to 2,147,483,647. `0` without a count is row start. `Esc` clears
+count and prefix; in Normal it also hides completed search results.
 
 h/l, Left/Right    Hex: nibble-by-nibble; ASCII: Byte-by-Byte.
 j/k, Up/Down       Row motion, preserving preferred Byte column through EOF.
@@ -83,20 +183,43 @@ Ctrl-b/f           Full page up/down with two rows of overlap.
 Tab                Switch Hex/ASCII at same offset; returning Hex chooses high
                    nibble. Hidden ASCII cannot be entered.
 Mouse              Click a Byte cell to move; wheel scrolls three rows.
-Ctrl-e/y           Blocked to keep title at the top.
+Ctrl-e/y           Silent no-op to keep the title at the top.
+
+Core keys take precedence over ordinary same-key mappings; protected
+non-core printable keys do not replace existing complete user mappings
+and wait for multi-key mappings such as <leader>w. If the leader is itself
+a core key, explicitly remap the desired action using its Hexit Plug mapping.
+For example, a FileType hexit autocmd can take over h after attachment: >lua
+  vim.api.nvim_create_autocmd('FileType', {
+    pattern = 'hexit',
+    callback = function(args)
+      vim.keymap.set('n', 'h', '<Plug>(Hexit-SwitchArea)',
+        { buffer = args.buf, remap = true })
+    end,
+  })
+<
+An explicit RHS can still attempt unrelated native operations; Hexit does
+not replay or reinterpret user mappings. Non-core unsupported operations
+display one native single-line warning, not a notification popup.
 
 =============================================================================
 SEARCH                                                          *hexit-search*
 
-/ / ?              Prompt for a forward/backward query in the current Hex
-                   or ASCII area (`Hex search >` / `ASCII search >`). The
-                   actual Neovim regex search is not used. Empty input
-                   repeats the last query; cancelling retains it.
-n / N              Next match in the query's original direction / opposite
-                   direction. N does not change the original direction.
-                   Counts select that many matches; traversal wraps once.
-                   One match may wrap back to itself. Esc cancels pending
-                   navigation without clearing the last query.
+/ / ?              Enter the *real* native / or ? command line. The kind
+                   (Hex/ASCII) is captured from the current area; native
+                   editing and search history work. An incomplete Hex digit
+                   is not parsed until Enter. Native regex execution is
+                   aborted before it touches rendered text or @/. Empty
+                   Enter repeats the last query with the new direction and
+                   count; with no query, reports "no previous search".
+                   Esc/Ctrl-C here abort only the unsubmitted input.
+n / N              Next match in the query's direction / opposite direction.
+                   N does not change that direction. Counts select that many
+                   matches, including multiple wraps; a request reports at
+                   most one boundary message. One hit can wrap to itself.
+Normal Esc         Hide count and matches, cancel scans/navigation, but keep
+                   last query for n/N. Visual Esc exits selection without
+                   hiding completed results; R Esc commits its transaction.
 
 Hex patterns accept compact pairs (`89504E47`) or pairs separated by
 whitespace (`89 50 4E 47`, `0x89 0x50 0x4E 0x47`). Odd digits, wildcards,
@@ -109,24 +232,36 @@ ignorecase and smartcase enabled, an ASCII uppercase query stays sensitive;
 otherwise folding applies only to ASCII A–Z. Changing options later does
 not alter the existing query.
 
-The title shows the current match's ascending Byte-offset ordinal and total
-(`k/total`), `0/0` when empty, or `searching…` while counting. Both Hex and
-ASCII cells of visible matching Bytes are highlighted; the current match
-has a distinct highlight. Overlaps are valid. Search indexes per 64KiB
-block rather than retaining a per-match list, so a dense 50MiB search does
-not allocate millions of hit objects. Editing, undo and redo restart the
-query against the new binary snapshot; closing or starting another query
-cancels outdated work.
+The right side of the |hexit-title| shows the match's ascending Byte-offset
+ordinal and total (`k/total`), `0/0` when counting is complete with no matches,
+`?/?` while counting, or `?/total` when complete without a current hit. A
+completed zero-result request displays
+`hexit: Pattern not found` via the native message line. Forward/reverse
+wrap displays `hexit: search hit BOTTOM, continuing at TOP` or
+`hexit: search hit TOP, continuing at BOTTOM` once per request. Both Hex
+and ASCII cells of visible matching Bytes are highlighted; the current hit
+has a distinct color. Overlaps are valid. Search indexes per 64KiB block,
+not per hit. Editing/undo/redo rebuild a visible query without navigation
+or an extra not-found message. A hidden query stays hidden until n/N or
+explicit search.
+
+Native `incsearch`/`hlsearch` are temporarily suppressed only during Hexit
+input and restored on leaving, including an existing :nohlsearch state.
+Unsubmitted text does not trigger binary preview. Native @/, native n/N,
+searchcount(), regex syntax and native search-offset suffixes do not describe
+Hexit results. An invalid submitted pattern shows a single native message;
+Ex :HexSearch parse errors remain command errors. Ordinary buffers retain
+ordinary / ? behavior.
 
 =============================================================================
 SELECT AND EDIT                                             *hexit-editing*
 
 v / V    Toggle Byte or entire-display-row Visual selection. Switching between
-         v/V retains anchor. Motions and Tab extend the range; Esc exits.
-         Selection length appears in the title. Empty files have no selection.
-         When the viewport is wide enough, mode and length stay at the left
-         edge of the title; long status can cover the first column-number
-         labels, not the data rows.
+         v/V retains anchor. Motions and Tab extend the range; Esc exits Visual
+         without hiding completed search. Selection length appears in the title.
+         The Hex ruler highlights selected columns and offsets of actual
+         selected rows; Visual has no separate current Byte/column/offset color.
+         Empty files cannot select.
 r{digit}  Hex: replace current nibble, count repeats digit over consecutive
          nibble positions. ASCII: replace current Byte, count repeats one
          printable ASCII character. Beyond EOF rejects the entire operation.

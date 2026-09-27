@@ -5,4 +5,7 @@ hexit-copy-as	hexit.txt	/*hexit-copy-as*
 hexit-editing	hexit.txt	/*hexit-editing*
 hexit-keys	hexit.txt	/*hexit-keys*
 hexit-search	hexit.txt	/*hexit-search*
+hexit-title	hexit.txt	/*hexit-title*
 hexit.txt	hexit.txt	/*hexit.txt*
+logical	hexit.txt	/*logical*
+real	hexit.txt	/*real*

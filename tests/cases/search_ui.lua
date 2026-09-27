@@ -38,8 +38,7 @@ return {
       H.eq(s.search.total, 2)
       H.eq(s.cursor.offset, 5)
       H.eq(s.search.ordinal, 2)
-      local title = vim.api.nvim_buf_get_lines(s.bufnr, 0, 1, false)[1]
-      assert(title:find('2/2', 1, true), title)
+      H.eq(require('hexit').get_status(s.bufnr).search_text, '2/2')
       local hex = layout.cell(s.layout, 5, 0, 'hex')
       local ascii = layout.cell(s.layout, 5, 0, 'ascii')
       assert(has_mark(s, 'HexSearchCurrent', 1, hex, hex + 2, 40))
@@ -54,16 +53,13 @@ return {
       H.eq(s.cursor.offset, 5)
       H.eq(s.search.direction, 1)
       local prior = vim.ui.input
-      vim.ui.input = function(opts, callback)
-        H.eq(opts.prompt, 'Hex search >')
-        callback('2A')
-      end
+      vim.ui.input = function() error('search must use native command line') end
       local ok, err = xpcall(function()
-        keys('/')
-        completed(s)
-        H.eq(s.search.total, 2)
-        H.eq(s.cursor.offset, 8)
-        H.eq(s.search.query.kind, 'hex')
+        keys('/2A<CR>')
+        assert(vim.wait(10000, function()
+          return s.search and s.search.query.kind == 'hex' and s.search.query.bytes == '*'
+            and s.search.total == 2 and not s.search.pending and s.cursor.offset == 8
+        end, 10), 'native Hex search did not finish')
       end, debug.traceback)
       vim.ui.input = prior
       if not ok then error(err) end
@@ -86,11 +82,7 @@ return {
       H.eq(pcall(vim.cmd, 'HexSearch hex ??'), false)
       H.eq(pcall(vim.cmd, 'HexSearch text .'), false)
       H.eq(s.search.total, 2)
-      local prior = vim.ui.input
-      vim.ui.input = function(_, callback) callback(nil) end
-      local ok, err = xpcall(function() keys('?') end, debug.traceback)
-      vim.ui.input = prior
-      if not ok then error(err) end
+      keys('?<Esc>')
       H.eq(s.search.query.kind, 'hex')
     end,
   },
@@ -115,8 +107,8 @@ return {
       keys('vll')
       H.eq(s.cursor.offset, 16)
       assert(has_mark(s, 'HexSelection', 1, h15, h15 + 2, 50))
-      assert(has_mark(s, 'HexCursorMatch', 2, a0, a0 + 1, 60))
-      assert(has_mark(s, 'HexCursor', 2, h0, h0 + 1, 70))
+      assert(not has_mark(s, 'HexCursorMatch', 2, a0, a0 + 1, 60))
+      assert(not has_mark(s, 'HexCursor', 2, h0, h0 + 1, 70))
     end,
   },
   {
@@ -166,25 +158,25 @@ return {
     end,
   },
   {
-    name = 'SEARCH Escape retains highlights when navigating to uncached viewport',
+    name = 'SEARCH Escape hides matches without losing the last query',
     run = function()
       local s = open(string.rep('x', 512) .. 'a')
       vim.cmd('HexSearch ascii a')
       completed(s)
-      vim.cmd('HexGoto 0')
-      assert(vim.wait(1000, function()
-        return s.search._visible_cache and s.search._visible_cache.start == 0
-      end, 10), 'first viewport was not scanned')
       keys('<Esc>')
       H.eq(s.search.total, 1)
+      H.eq(require('hexit').get_status(s.bufnr).search_text, '')
       vim.cmd('HexGoto 512')
       local row = math.floor(512 / s.layout.bpr) - s.top_row + 1
       local hex = layout.cell(s.layout, 512 % s.layout.bpr, 0, 'hex')
       local ascii = layout.cell(s.layout, 512 % s.layout.bpr, 0, 'ascii')
+      assert(not has_mark(s, 'HexSearchCurrent', row, hex, hex + 2, 40))
+      assert(not has_mark(s, 'HexSearchCurrent', row, ascii, ascii + 1, 40))
+      keys('n')
       assert(vim.wait(2000, function()
         return has_mark(s, 'HexSearchCurrent', row, hex, hex + 2, 40)
           and has_mark(s, 'HexSearchCurrent', row, ascii, ascii + 1, 40)
-      end, 10), 'Esc removed match highlights in the next viewport')
+      end, 10), 'explicit n did not resume hidden search')
     end,
   },
 }
