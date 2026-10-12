@@ -52,7 +52,7 @@ require("hexit").setup({
   default_copy_format = "hex",
   search_ignorecase = nil, -- nil uses vim.o.ignorecase
   search_smartcase = nil,  -- nil uses vim.o.smartcase
-  mappings = true,         -- false: install only <Plug> mappings
+  mappings = true,         -- true: defaults; false or table also supported
 })
 ```
 
@@ -81,10 +81,19 @@ writes the current document back to the source file.
 
 ## Default keymaps
 
-Default mappings are buffer-local. Core action keys (motions, counts, `<Tab>`,
-and so on) replace an existing mapping for the same key; only the printable
-keys used as r/R data input leave existing user mappings alone. Remap a core
-action through `<Plug>(Hexit-{Action})` if you need the key.
+Default mappings are buffer-local. Customize them in `setup()`:
+
+```lua
+require("hexit").setup({
+  mappings = {
+    -- defaults = false,          -- use only the bindings below
+    ["<leader>a"] = "SwitchArea",  -- bind an action
+    ["<Tab>"] = false,            -- allow user mappings / native behavior
+  },
+})
+```
+
+See `:help hexit-keys` for the full configuration rules.
 
 | Key | Action |
 | --- | --- |

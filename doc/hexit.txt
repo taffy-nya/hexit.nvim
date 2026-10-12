@@ -68,18 +68,26 @@ Optional, before opening sessions: >lua
     default_copy_format = 'hex',
     search_ignorecase = nil,  -- nil reads vim.o.ignorecase at query start
     search_smartcase = nil,   -- nil reads vim.o.smartcase at query start
-    mappings = true,
+    mappings = true,         -- true | false | table
   })
 <
 Unknown fields and invalid values make `setup()` fail; repeated setup affects
-sessions opened afterwards only.
+sessions opened afterwards only. Mapping tables are copied when setup is called.
 
 `mappings=false` installs the stable `<Plug>(Hexit-{Action})` maps without
-default keys. Replace input still captures printable keys temporarily and
-restores the user's mappings on exit. Hex windows sharing one buffer share one
-cursor and viewport; the narrowest window determines auto row width and the
-active window controls the visible height. Physical local 'scrolloff' stays 0
-to keep the title fixed, while the saved user 'scrolloff' is kept as a
+default keys or ordinary printable-key protection. During `r`, `R`, and Visual
+fill, the temporary data-input layer still captures data keys and `<Esc>`;
+ordinary-layer `false` does not change it. Complete combinations
+beginning with a captured data key are temporarily shadowed too: ASCII R writes
+`,a` as two Bytes even when `,a` is bound to an action. Single r or Visual fill
+consumes only its required data; remaining keys are handled normally. Original
+single-key and complete-combination mappings are restored when input ends;
+global mappings are never modified. Existing native mappings that distinguish
+`<Tab>` from `<C-I>` are restored independently.
+Hex windows sharing one buffer share one cursor and viewport; the narrowest
+window determines auto row width
+and the active window controls the visible height. Physical local 'scrolloff'
+stays 0 to keep the title fixed, while the saved user 'scrolloff' is kept as a
 "logical" viewport margin and restored on leaving (including global
 inheritance); setting the local value while in Hex updates both. Pixel-smooth
 scrolling, for example in Neovide, is not promised.
@@ -147,7 +155,60 @@ on dark and DiffChange on light backgrounds.
 KEYS AND PLUG MAPPINGS                              *hexit-keys* *hexit-plug*
 
 Every supported action has a stable buffer-local `<Plug>(Hexit-{Action})`
-mapping. Default keys, when `mappings` is true, only forward to these names:
+mapping, installed for all `mappings` settings. With defaults enabled, default
+keys only forward to these names.
+
+`mappings` omitted or `true` installs default keys and ordinary printable-key
+protection. `false` installs only the `<Plug>` mappings, with no default keys
+or protection.
+
+A table enables this default layer unless its reserved `defaults` field is
+`false`; if supplied, `defaults` must be boolean and defaults to `true`.
+With `defaults=false`, only explicitly configured keys are installed in
+addition to the `<Plug>` maps, without ordinary printable-key protection.
+
+Each other table key must be a nonempty string lhs. Its value must be an
+existing logical action name from the `<Plug>` action column below (including
+`Digit0`–`Digit9`, `GPrefix`, `Unsupported`, `WheelUp`, and `WheelDown`), or
+`false`. Internal `CharXX` Plug names protect unsupported
+printable keys; they are not configurable actions. Replace data uses a separate
+temporary input layer. Arbitrary RHS expressions, functions, and nested mode
+tables are not accepted.
+Neovim termcodes, including `<leader>`, are resolved at setup. Lhs aliases
+that resolve to the same key are rejected.
+
+An explicit action overrides the same-key default, existing user or Plug
+mapping, and protection. `false` installs no Hexit mapping and excludes
+that lhs from defaults and protection without deleting an existing user map.
+It leaves the key to the user's mapping or Neovim fallback, with no promised
+Hex behavior. With defaults enabled, adding an alias does not remove its old
+default key. Later `FileType` or buffer-local mappings can override Hexit
+mappings in the same buffer. Hexit makes no guarantee that mapping a prefix
+blocks longer mappings. Explicit bindings use native prefix/timeout resolution;
+default core keys retain their immediate mapping priority.
+Configuration is copied at setup and applies to new sessions only.
+
+Example: >
+  require('hexit').setup({
+    mappings = {
+      ['<leader>a'] = 'SwitchArea',
+      ['<Tab>'] = false,
+    },
+  })
+<
+For custom-only mappings, disable the defaults layer: >
+  require('hexit').setup({
+    mappings = {
+      defaults = false,
+      ['<leader>h'] = 'Left',
+      ['<leader>l'] = 'Right',
+    },
+  })
+<
+To keep only the stable `<Plug>` maps without default keys or protection, set
+`mappings = false`: >
+  require('hexit').setup({ mappings = false })
+<
 
   Key(s)                  `<Plug>` action            Effect ~
   h l k j, arrows         Left Right Up Down         nibble/Byte, row
@@ -170,7 +231,7 @@ mapping. Default keys, when `mappings` is true, only forward to these names:
   n N                     SearchNext SearchPrev
   <Esc>                   Escape                     clear/hide
   0-9                     Digit0 ... Digit9          counts
-  other printable ASCII   CharXX (Char41 is "A")     r/R data input
+  other printable ASCII   CharXX                     unsupported-key protection
   wheel                   WheelUp WheelDown          scroll 3 rows
 
 h/l move nibble by nibble in Hex and Byte by Byte in ASCII; j/k preserve the
@@ -184,17 +245,15 @@ prefix, hides completed search results in Normal, leaves Visual, and commits an
 active Replace transaction; entering `:` also clears pending navigation input.
 
 Counts are decimal and limited to 2,147,483,647; a rejected count rejects the
-whole motion, and `0` without a preceding count is row start. Core action keys
-take precedence over ordinary same-key mappings; protected non-core printable
-keys do not replace an existing complete user mapping and still wait for
-multi-key mappings such as <leader>w. `RowStart` has no default key of its own,
-so map it when an explicit row-start key is wanted; `g` is `GPrefix` and a
-second `g` completes `First`, so counts never depend on mapping timeouts. A
-default key is skipped when that key already maps to a `<Plug>(Hexit-...)`
-name, and a `FileType hexit` buffer-local map to such a name replaces the
-default. If the leader itself is a core key, remap that action explicitly
-through its Plug name. Non-core unsupported operations show one native
-single-line message, not a notification popup.
+whole motion, and `0` without a preceding count is row start. With defaults
+enabled, core default keys replace ordinary same-key mappings, unless already
+mapped to a Hexit Plug. Protected printable keys leave a complete existing user
+mapping alone and allow non-core prefix combinations through native resolution.
+Explicit opts mappings override these defaults. `RowStart` has no default
+key of its own, so map it when an explicit row-start key is wanted; `g` is
+`GPrefix` and a second `g` completes `First`, so counts never depend on mapping
+timeouts. Non-core unsupported operations show one native single-line message,
+not a notification popup.
 
 =============================================================================
 EDITING                                                         *hexit-editing*

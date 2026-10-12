@@ -4,31 +4,12 @@ local actions = require('hexit.actions')
 local search = require('hexit.search')
 local messages = require('hexit.message')
 local status = require('hexit.status')
+local config = require('hexit.config')
 
 local M = {}
-local defaults = {
-  h = 'Left', l = 'Right', k = 'Up', j = 'Down', w = 'WordNext', b = 'WordPrev', e = 'WordEnd',
-  G = 'Last', ['$'] = 'RowEnd', g = 'GPrefix', v = 'Visual', V = 'VisualLine',
-  r = 'Replace', R = 'ReplaceMode', y = 'Yank', p = 'PasteAfter', P = 'PasteBefore', u = 'Undo',
-  ['/'] = 'SearchForward', ['?'] = 'SearchBackward', n = 'SearchNext', N = 'SearchPrev',
-}
-local specials = {
-  ['<Left>'] = 'Left', ['<Right>'] = 'Right', ['<Up>'] = 'Up', ['<Down>'] = 'Down',
-  ['<C-u>'] = 'HalfUp', ['<C-d>'] = 'HalfDown', ['<C-b>'] = 'PageUp', ['<C-f>'] = 'PageDown',
-  ['<C-e>'] = 'Unsupported', ['<C-y>'] = 'Unsupported', ['<C-r>'] = 'Redo',
-  ['<Tab>'] = 'SwitchArea', ['<Esc>'] = 'Escape',
-  ['<ScrollWheelUp>'] = 'WheelUp', ['<ScrollWheelDown>'] = 'WheelDown',
-}
-local names = {
-  Left = true, Right = true, Up = true, Down = true, WordNext = true, WordPrev = true,
-  WordEnd = true, First = true, Last = true, RowStart = true, RowEnd = true,
-  HalfUp = true, HalfDown = true, PageUp = true, PageDown = true, SwitchArea = true,
-  Escape = true, GPrefix = true, WheelUp = true, WheelDown = true, Unsupported = true,
-  Visual = true, VisualLine = true, Replace = true, ReplaceMode = true, Yank = true,
-  PasteAfter = true, PasteBefore = true, Undo = true, Redo = true,
-  SearchForward = true, SearchBackward = true, SearchNext = true, SearchPrev = true,
-}
-for digit = 0, 9 do names['Digit' .. digit] = true end
+local defaults = config.default_keys
+local specials = config.special_keys
+local names = config.action_names
 
 local function message(text, level)
   messages.show(text, level)
@@ -261,7 +242,7 @@ local function temp_keys()
   return keys
 end
 local captured = temp_keys()
-local function canonical(key) return key == '<' and '<lt>' or key end
+local canonical = config.mapping_lhs
 local function maparg_in_buffer(buf, lhs)
   return vim.api.nvim_buf_call(buf, function()
     return vim.fn.maparg(lhs, 'n', false, true)
@@ -283,15 +264,18 @@ local function clear_temporary(session)
   if not state or not state.temporary then return end
   local previous = state.temporary
   state.temporary = nil
-  for _, key in ipairs(captured) do
-    pcall(vim.keymap.del, 'n', canonical(key), { buffer = session.bufnr })
-    local original = previous[key]
-    if original and next(original) then
+  for _, saved in pairs(previous) do
+    pcall(vim.keymap.del, 'n', saved.lhs, { buffer = session.bufnr })
+  end
+  -- Remove the whole temporary layer before restoring any alias siblings.
+  for _, saved in pairs(previous) do
+    local original = saved.original
+    if original then
       pcall(vim.api.nvim_buf_call, session.bufnr, function()
         vim.fn.mapset('n', false, original)
       end)
     end
-end
+  end
 end
 M.clear_temporary = clear_temporary
 
@@ -308,8 +292,7 @@ local function receive(session, key)
     clear_temporary(session)
     state.replace, state.first, state.second_pending, state.replace_count = nil, nil, nil, nil
     if session.mode == 'replace' then actions.escape(session) end
-    vim.api.nvim_feedkeys(':', 'nit', false)
-    return
+    return true -- The sequence receiver enters ':' before its remaining keys.
   end
   if key == '<Esc>' then
     clear_temporary(session)
@@ -355,17 +338,110 @@ local function receive(session, key)
   if not ok then message(err) end
 end
 
-local function temporary(session)
-  local saved = {}
-  for _, key in ipairs(captured) do
-    local lhs = canonical(key)
-    local original = maparg_in_buffer(session.bufnr, lhs)
-    if type(original) == 'table' and (original.buffer == 1 or original.buffer == true) then
-      saved[key] = original
+local captured_keys = {}
+for _, key in ipairs(captured) do captured_keys[canonical(key)] = key end
+local escaped_special = vim.api.nvim_replace_termcodes('<Char-0x80>', true, true, true):sub(2)
+
+local function keytext(raw)
+  local text = vim.fn.keytrans((raw:gsub(escaped_special, '\128')))
+  -- keytrans uses hexadecimal names for non-printable modified codepoints.
+  return (text:gsub('<([%u%-]+%-)([0-9a-f][0-9a-f]+)>', '<%1Char-0x%2>'))
+end
+
+local function data_binding(raw)
+  local first = keytext(raw):match('^<[^>]+>') or raw:sub(1, 1)
+  if not (captured_keys[first] or captured_keys[canonical(first)]) then return end
+  local keys, lhs, offset = {}, {}, 1
+  while offset <= #raw do
+    local text = keytext(raw:sub(offset))
+    local last = offset
+    local token = keytext(raw:sub(offset, last))
+    -- Let Neovim identify complete encoded keys, including modifiers and UTF-8.
+    while token .. keytext(raw:sub(last + 1)) ~= text do
+      last = last + 1
+      token = keytext(raw:sub(offset, last))
     end
-    vim.keymap.set('n', lhs, function() receive(session, key) end,
-      { buffer = session.bufnr, silent = true, nowait = true })
+    local key = captured_keys[token] or captured_keys[canonical(token)]
+    if offset == 1 and not key then return end
+    local input = raw:sub(offset, last)
+    keys[#keys + 1] = { key = key, start = offset, stop = last + 1 }
+    -- Keep literal control bytes distinct from their modifier-encoded forms.
+    if input:byte() >= 0xC0 then
+      -- Literal UTF-8 can contain escaped K_SPECIAL bytes; keytrans may render
+      -- non-printable codepoints as names that are not valid mapping notation.
+      lhs[#lhs + 1] = input:gsub(escaped_special, '\128')
+    else
+      lhs[#lhs + 1] = input:byte() < 128 and input ~= '<' and input or token
+    end
+    offset = last + 1
   end
+  return { raw = raw, lhs = table.concat(lhs), keys = keys }
+end
+
+local captured_bindings = {}
+for lhs in pairs(captured_keys) do
+  local raw = vim.api.nvim_replace_termcodes(lhs, true, true, true)
+  captured_bindings[raw] = data_binding(raw)
+end
+
+local function receive_sequence(session, binding)
+  for _, input in ipairs(binding.keys) do
+    if not session.input.replace or not input.key then
+      -- Return original input bytes, not a normalized key or the mapping RHS.
+      vim.api.nvim_feedkeys(binding.raw:sub(input.start), 'mit', false)
+      return
+    end
+    if receive(session, input.key) then
+      if input.stop <= #binding.raw then
+        vim.api.nvim_feedkeys(binding.raw:sub(input.stop), 'mit', false)
+      end
+      vim.api.nvim_feedkeys(':', 'nit', false)
+      return
+    end
+  end
+end
+
+local function temporary(session)
+  local bindings, saved, originals = {}, {}, {}
+  for raw, binding in pairs(captured_bindings) do
+    bindings[raw] = binding
+  end
+  for _, mapping in ipairs(vim.api.nvim_buf_call(session.bufnr, vim.fn.maplist)) do
+    if (mapping.buffer == 1 or mapping.buffer == true)
+      and (mapping.mode == ' ' or mapping.mode:find('n', 1, true)) then
+      originals[mapping.lhsraw] = mapping
+    end
+  end
+  -- Fully queued mappings must be shadowed by native identity, not opts aliases.
+  for scope, mappings in ipairs({
+    vim.api.nvim_get_keymap('n'), vim.api.nvim_buf_get_keymap(session.bufnr, 'n'),
+  }) do
+    for _, mapping in ipairs(mappings) do
+      local binding = bindings[mapping.lhsraw] or data_binding(mapping.lhsraw)
+      if binding then
+        bindings[binding.raw] = binding
+        if scope == 2 then
+          local original = originals[binding.raw]
+          -- maplist synthesizes aliases; the API reports only actual linked aliases.
+          original.lhs, original.lhsrawalt = binding.lhs, mapping.lhsrawalt
+          saved[binding.raw] = { lhs = binding.lhs, original = original }
+        end
+      end
+    end
+  end
+  vim.api.nvim_buf_call(session.bufnr, function()
+    local source = vim.fn.maparg('<Plug>(Hexit-Escape)', 'n', false, true)
+    for raw, binding in pairs(bindings) do
+      saved[raw] = saved[raw] or { lhs = binding.lhs }
+      -- Install the exact raw identity, without adding simplified aliases.
+      vim.fn.mapset('n', false, {
+        lhs = binding.lhs, lhsraw = raw, rhs = '', buffer = 1,
+        callback = function() receive_sequence(session, binding) end,
+        noremap = 1, silent = 1, nowait = 1, expr = 0, script = 0,
+        sid = source.sid or 0, lnum = source.lnum or 0,
+      })
+    end
+  end)
   session.input.temporary = saved
 end
 
@@ -514,6 +590,9 @@ end
 function M.attach(session)
   local buf = session.bufnr
   session.input = { count = nil, prefix = nil, overflow = nil, search_token = 0 }
+  local mappings = session.options.mappings
+  local overrides = type(mappings) == 'table' and mappings or {}
+  local use_defaults = mappings ~= false and overrides.defaults ~= false
   install_cmdline_handlers()
   local function plug(action, key)
     local name = '<Plug>(Hexit-' .. action .. ')'
@@ -530,32 +609,38 @@ function M.attach(session)
       char_names[key] = plug(action, key)
     end
   end
-  if session.options.mappings then
+  if use_defaults then
     for key, action in pairs(defaults) do
-      if not maps_to_hexit_plug(buf, key) then
+      if overrides[canonical(key)] == nil and not maps_to_hexit_plug(buf, key) then
         vim.keymap.set('n', key, '<Plug>(Hexit-' .. action .. ')',
           { buffer = buf, silent = true, nowait = true, remap = true })
       end
     end
     for digit = 0, 9 do
       local key = tostring(digit)
-      if not maps_to_hexit_plug(buf, key) then
+      if overrides[canonical(key)] == nil and not maps_to_hexit_plug(buf, key) then
         vim.keymap.set('n', key, '<Plug>(Hexit-Digit' .. digit .. ')',
           { buffer = buf, silent = true, nowait = true, remap = true })
       end
     end
     for key, name in pairs(char_names) do
       local lhs = canonical(key)
-      if not has_mapping(buf, lhs) then
+      if overrides[lhs] == nil and not has_mapping(buf, lhs) then
         vim.keymap.set('n', lhs, name,
           { buffer = buf, silent = true, nowait = false, remap = true })
       end
     end
     for key, action in pairs(specials) do
-      if not maps_to_hexit_plug(buf, key) then
+      if overrides[canonical(key)] == nil and not maps_to_hexit_plug(buf, key) then
         vim.keymap.set('n', key, '<Plug>(Hexit-' .. action .. ')',
           { buffer = buf, silent = true, nowait = true, remap = true })
       end
+    end
+  end
+  for lhs, action in pairs(overrides) do
+    if lhs ~= 'defaults' and action ~= false then
+      vim.keymap.set('n', lhs, '<Plug>(Hexit-' .. action .. ')',
+        { buffer = buf, silent = true, nowait = false, remap = true })
     end
   end
   vim.api.nvim_create_autocmd('CmdlineEnter', {
